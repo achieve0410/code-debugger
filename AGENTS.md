@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Repository operating guide for `kg-debugger`. Higher-priority instructions
+Repository operating guide for `code-debugger`. Higher-priority instructions
 prevail.
 
 ## Product boundary

@@ -2,7 +2,7 @@
 
 ## Scope and threat boundary
 
-`kg-debugger` is a local developer tool, not a production service or hostile
+`code-debugger` is a local developer tool, not a production service or hostile
 multi-user isolation boundary. It binds to `127.0.0.1` and serves loopback HTTPS
 only in normal operation. Host, Origin, per-process mutation capability, strict
 framing, no-store responses, and no CORS protect the intended local browser/API
