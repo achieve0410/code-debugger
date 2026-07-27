@@ -1,6 +1,6 @@
 [project]
-name = "kg-execution-flow-debugger"
-version = "0.1.1"
+name = "code-debugger"
+version = "0.2.0"
 description = "Local-first route-centered execution flow debugger"
 readme = "README.md"
 license = "MIT"

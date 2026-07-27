@@ -1,18 +1,22 @@
-# kg-debugger
+# code-debugger
 
 [![CI](https://github.com/achieve0410/code-debugger/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/achieve0410/code-debugger/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> Project status: early `v0.1.x`. The graph and security contracts are strict,
+> Project status: early `v0.2.x`. The graph and security contracts are strict,
 > but framework coverage remains intentionally bounded and unsupported behavior
 > is reported as `Unresolved`.
 
-`kg-debugger` is a local execution-flow debugger for React, Vue 3, Nuxt 3+,
+`code-debugger` is a local execution-flow debugger for React, Vue 3, Nuxt 3+,
 and Django. It statically connects browser routes, UI ownership/events, HTTP
 and payload shapes, Django URLs/views/helpers, and ORM boundaries. Unknown or
 unsupported cases remain `Unresolved`; it does not claim exhaustive discovery.
 Nuxt `server/api` routes are terminal interface boundaries and are not
 traversed.
+
+The repository and distribution are named `code-debugger`. The Python import
+namespace (`kg_debugger`) and existing on-disk, wire, and serialized identifiers
+remain stable compatibility identifiers in `v0.2.x`.
 
 It binds the UI/API to loopback HTTPS. It does not contact production services,
 databases, or external URLs, and it has no telemetry or export path.

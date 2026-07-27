@@ -34,7 +34,7 @@ disclosure.
 
 ## Security boundary
 
-`kg-debugger` is a loopback-only local development tool, not a hostile-host or
+`code-debugger` is a loopback-only local development tool, not a hostile-host or
 multi-user security boundary. Its supported data, network, runtime, and storage
 boundaries are documented in [docs/security-model.md](docs/security-model.md).
 Reports that demonstrate a violation of those documented boundaries are in

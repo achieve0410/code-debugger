@@ -1,6 +1,6 @@
-# Contributing to kg-debugger
+# Contributing to code-debugger
 
-Thank you for helping improve `kg-debugger`. Contributions should preserve its
+Thank you for helping improve `code-debugger`. Contributions should preserve its
 local-first, fail-closed security and graph-contract boundaries.
 
 ## Before opening a change

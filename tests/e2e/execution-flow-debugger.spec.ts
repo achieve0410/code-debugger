@@ -172,6 +172,7 @@ const canonicalCssToken = (value: string) => {
 test("accepts canonical IPv6 authorities and rejects forged converter and function records", async ({ page }) => {
   const ipv6 = { id: nodeId("src/ipv6.ts", "external_service", "ipv6"), kind: "external_service", identityKey: "ipv6", label: "GET https://[2001:db8::1]:443", layer: "external", source: { repository: "web", path: "src/ipv6.ts", line: 1 }, evidence: [inferred], confidence: 0.9, metadata: { method: "GET", scheme: "https", host: "2001:db8::1", port: 443, pathPresent: true, queryFieldCount: 0, hasSensitiveQuery: false, boundaryOnly: true } };
   await mock(page, { graph: { ...staticGraph, nodes: [...staticGraph.nodes, ipv6].sort((a, b) => a.id.localeCompare(b.id)) } }); await page.goto("/");
+  await expect(page).toHaveTitle("code-debugger");
   await expect(page.getByTestId("graph-canvas")).toBeVisible();
   const forged = { ...staticGraph, nodes: staticGraph.nodes.map((node) => node.kind === "django_url_pattern" ? { ...node, metadata: { ...node.metadata, converters: [{ name: "forged", kind: "int", segmentIndex: 0 }] } } : node.kind === "function" && node.layer === "frontend" ? { ...node, metadata: {} } : node) };
   await page.unroute("**/api/graph"); await page.route("**/api/graph", (route) => route.fulfill({ json: forged })); await page.reload();
