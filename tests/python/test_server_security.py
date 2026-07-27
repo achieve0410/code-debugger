@@ -58,6 +58,9 @@ class ServerSecurityTests(unittest.TestCase):
     def headers(self, **extra: str) -> dict[str, str]:
         return {"Host": f"127.0.0.1:{self.port}", **extra}
 
+    def test_server_requires_tls_1_2_or_newer(self) -> None:
+        self.assertEqual(self.server.socket.context.minimum_version, ssl.TLSVersion.TLSv1_2)
+
     def test_https_loopback_health_requires_exact_authority(self) -> None:
         for host in (f"127.0.0.1:{self.port}", f"localhost:{self.port}"):
             status, headers, body = self.request("GET", "/api/health", headers={"Host": host})

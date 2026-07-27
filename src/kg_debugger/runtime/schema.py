@@ -14,6 +14,7 @@ _CAPTURE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _ENCODED_SEPARATOR_RE = re.compile(r"%(?:2[fF]|5[cC])")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 _TRACE_KEY_RE = re.compile(r"[a-z0-9][a-z0-9_*/-]{0,255}(?:@[a-z0-9][a-z0-9_*/-]{0,13})?")
+_QUALIFIED_NAME_PART_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
 _CANONICAL_KEYS = frozenset(
     {
@@ -238,9 +239,8 @@ def _percent_decode(value: str) -> str:
 
 
 def _is_qualified_name(value: str) -> bool:
-    return bool(
-        re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+", value)
-    )
+    parts = value.split(".")
+    return len(parts) > 1 and all(_QUALIFIED_NAME_PART_RE.fullmatch(part) for part in parts)
 
 
 def _valid_tracestate(value: str) -> bool:

@@ -413,6 +413,7 @@ def build_server(config: DebuggerConfig) -> DebuggerServer:
     server = DebuggerServer(config)
     cert, key = cert_paths(config.workspace_root)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(certfile=cert, keyfile=key)
     server.socket = context.wrap_socket(server.socket, server_side=True)
     return server

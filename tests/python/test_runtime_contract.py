@@ -94,6 +94,14 @@ class RuntimeSchemaTests(unittest.TestCase):
         self.assert_rejected(self.event(viewQualifiedName="module.<locals>.view"))
         self.assert_rejected(self.event(viewQualifiedName="module:bad"))
         self.assertEqual(validate_runtime_event(self.event(viewQualifiedName="package.View.dispatch")).payload["viewQualifiedName"], "package.View.dispatch")
+        for qualified in ("a.", ".a", "a..b", "a.1"):
+            with self.subTest(qualified=qualified):
+                self.assert_rejected(self.event(viewQualifiedName=qualified))
+        longest = "a." + "A" * 510
+        self.assertEqual(
+            validate_runtime_event(self.event(viewQualifiedName=longest)).payload["viewQualifiedName"],
+            longest,
+        )
 
     def test_closed_shape_and_exact_legacy_normalization(self) -> None:
         self.assert_rejected(self.event(project="x"))
