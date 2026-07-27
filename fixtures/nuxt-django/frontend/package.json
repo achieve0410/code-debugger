@@ -2,7 +2,7 @@
   "name": "nuxt-frontend",
   "private": true,
   "dependencies": {
-    "nuxt": "4.2.3",
+    "nuxt": "4.4.7",
     "vue": "3.5.40"
   }
 }
