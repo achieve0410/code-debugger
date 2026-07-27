@@ -1,0 +1,38 @@
+# Local toolchains and installed dependencies
+/venv/
+/node_modules/
+
+# Generated frontend and test output
+/web/dist/
+/playwright-report/
+/test-results/
+/coverage/
+
+# Local runtime data and OMX working artifacts
+/.kg-debugger/
+/.gjc/
+/.omx/
+/qa-screenshots/
+
+# Generated localhost certificates and private keys
+/pem/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Python, Node, and tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+npm-debug.log*
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
+*~

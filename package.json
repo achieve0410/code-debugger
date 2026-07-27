@@ -1,0 +1,46 @@
+{
+  "name": "kg-execution-flow-debugger",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first route-centered execution flow debugger",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/achieve0410/code-debugger.git"
+  },
+  "bugs": {
+    "url": "https://github.com/achieve0410/code-debugger/issues"
+  },
+  "homepage": "https://github.com/achieve0410/code-debugger#readme",
+  "type": "module",
+  "engines": {
+    "node": "24.14.1"
+  },
+  "scripts": {
+    "analyze": "node analyzers/index.mjs",
+    "build": "npm run typecheck && vite build",
+    "dev": "vite --host 127.0.0.1",
+    "lint": "./scripts/static-check.sh",
+    "serve": "PYTHONPATH=src ./venv/python3.13/bin/python -m kg_debugger.app",
+    "test": "npm run test:js && npm run test:python",
+    "test:js": "node --test tests/js/*.test.mjs",
+    "test:python": "PYTHONPATH=src ./venv/python3.13/bin/python -m unittest discover -s tests/python -p 'test_*.py'",
+    "test:e2e": "npm run build && NODE_EXTRA_CA_CERTS=$PWD/pem/cert.pem playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vue/compiler-sfc": "3.5.40",
+    "cytoscape": "3.34.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "typescript": "6.0.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.4",
+    "vite": "8.1.5"
+  }
+}

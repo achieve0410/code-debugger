@@ -1,0 +1,73 @@
+name: Bug report
+description: Report a reproducible problem using synthetic, non-sensitive data.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug. Never include credentials, headers, cookies, request or response bodies, query values, absolute local roots, source excerpts, logs containing private data, or real analyzed-project data. Use a minimal synthetic fixture.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - React analyzer
+        - Vue analyzer
+        - Nuxt analyzer
+        - Django analyzer
+        - Graph contract or merge
+        - Runtime or API
+        - Storage or migration
+        - Web interface
+        - Setup, build, or CI
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.1.0 or a commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem
+      description: Describe the observable behavior and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Synthetic reproduction
+      description: Provide minimal steps or a synthetic fixture. Do not paste source from a private project.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Provide operating system, architecture, browser when relevant, and sanitized diagnostic codes only.
+      placeholder: macOS 15, arm64, Chromium; diagnostic code example_code
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and pull requests.
+          required: true
+        - label: This report contains only synthetic, non-sensitive data and no absolute local paths.
+          required: true
+        - label: I reproduced the problem on the latest release or current main branch.
+          required: true

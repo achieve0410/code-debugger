@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose a focused improvement within the local-first debugger boundary.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Explain the user problem before proposing an implementation. Requests that add telemetry, external traversal, production access, broad data collection, or fail-open graph claims are outside the project boundary.
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: What workflow is blocked or unnecessarily difficult?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest observable change that solves the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe simpler workarounds or existing features you considered.
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Security and graph-contract impact
+      description: Identify affected data, network, runtime, persistence, or GraphSnapshotV2 boundaries.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and pull requests.
+          required: true
+        - label: This proposal uses only synthetic, non-sensitive examples.
+          required: true
+        - label: This proposal preserves local-only operation and explicit Unresolved fallbacks.
+          required: true

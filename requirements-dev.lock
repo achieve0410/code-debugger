@@ -1,0 +1,5 @@
+ruff==0.12.4
+mypy==1.17.0
+mypy_extensions==1.1.0
+pathspec==0.12.1
+typing_extensions==4.14.1

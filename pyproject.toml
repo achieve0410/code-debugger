@@ -1,0 +1,30 @@
+[project]
+name = "kg-execution-flow-debugger"
+version = "0.1.0"
+description = "Local-first route-centered execution flow debugger"
+readme = "README.md"
+license = "MIT"
+authors = [{name = "Wonhyo Choi"}]
+requires-python = "==3.13.*"
+dependencies = ["Django==6.0.7"]
+
+[project.urls]
+Homepage = "https://github.com/achieve0410/code-debugger"
+Repository = "https://github.com/achieve0410/code-debugger"
+Issues = "https://github.com/achieve0410/code-debugger/issues"
+
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.mypy]
+files = ["src/kg_debugger"]
+python_version = "3.13"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

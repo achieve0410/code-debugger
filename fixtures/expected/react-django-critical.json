@@ -1,0 +1,38 @@
+{
+  "repository": "react-django",
+  "routes": [
+    "route:react:/",
+    "route:react:/details"
+  ],
+  "nodes": {
+    "route:react:/": "frontend_route",
+    "component:frontend/src/HomePage.tsx:HomePage": "page",
+    "component:frontend/src/SummaryCard.tsx:SummaryCard": "component",
+    "event:frontend/src/HomePage.tsx:onClick:516": "ui_event",
+    "function:frontend/src/HomePage.tsx:loadItems": "function",
+    "http:react:GET:/api/items/?include=active": "http_call",
+    "django_url:/api/items/": "django_url_pattern",
+    "django_view:backend/shop/views.py:item_list": "django_view",
+    "function:backend/shop/services.py:list_active_items": "function",
+    "query:backend/shop/services.py:list_active_items:Item.filter": "query_boundary",
+    "model:backend/shop/models.py:Item": "model",
+    "external:GET:https://inventory.example.test/status": "external_service",
+    "unresolved:django:backend/shop/services.py:resolve_dynamic_helper": "unresolved_target"
+  },
+  "edges": [
+    ["route:react:/", "renders", "component:frontend/src/HomePage.tsx:HomePage"],
+    ["component:frontend/src/HomePage.tsx:HomePage", "renders", "component:frontend/src/SummaryCard.tsx:SummaryCard"],
+    ["event:frontend/src/HomePage.tsx:onClick:516", "handles", "function:frontend/src/HomePage.tsx:loadItems"],
+    ["function:frontend/src/HomePage.tsx:loadItems", "calls", "http:react:GET:/api/items/?include=active"],
+    ["http:react:GET:/api/items/?include=active", "resolves_to", "django_url:/api/items/"],
+    ["django_url:/api/items/", "resolves_to", "django_view:backend/shop/views.py:item_list"],
+    ["django_view:backend/shop/views.py:item_list", "calls", "function:backend/shop/services.py:list_active_items"],
+    ["function:backend/shop/services.py:list_active_items", "accesses", "query:backend/shop/services.py:list_active_items:Item.filter"],
+    ["query:backend/shop/services.py:list_active_items:Item.filter", "accesses", "model:backend/shop/models.py:Item"],
+    ["function:backend/shop/services.py:external_status_boundary", "calls", "external:GET:https://inventory.example.test/status"],
+    ["component:frontend/src/App.tsx:NavigationButton", "navigates_to", "route:react:/details"]
+  ],
+  "diagnostics": [
+    "unresolved_dynamic_target"
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "repository": "vue-django",
+  "routes": [
+    "route:vue:/",
+    "route:vue:/details"
+  ],
+  "nodes": {
+    "route:vue:/": "frontend_route",
+    "component:frontend/src/HomePage.vue:HomePage": "page",
+    "component:frontend/src/SummaryCard.vue:SummaryCard": "component",
+    "event:frontend/src/HomePage.vue:click:52": "ui_event",
+    "event:frontend/src/HomePage.vue:click:103": "ui_event",
+    "function:frontend/src/HomePage.vue:loadItems": "function",
+    "function:frontend/src/HomePage.vue:goDetails": "function",
+    "http:vue:GET:/api/items/?include=active": "http_call",
+    "django_url:/api/items/": "django_url_pattern",
+    "django_view:backend/shop/views.py:item_list": "django_view",
+    "function:backend/shop/services.py:list_active_items": "function",
+    "query:backend/shop/services.py:list_active_items:Item.filter": "query_boundary",
+    "model:backend/shop/models.py:Item": "model",
+    "external:GET:https://inventory.example.test/status": "external_service",
+    "unresolved:vue:frontend/src/HomePage.vue:dynamic-component:143": "unresolved_target"
+  },
+  "edges": [
+    ["route:vue:/", "renders", "component:frontend/src/HomePage.vue:HomePage"],
+    ["component:frontend/src/HomePage.vue:HomePage", "renders", "component:frontend/src/SummaryCard.vue:SummaryCard"],
+    ["event:frontend/src/HomePage.vue:click:52", "handles", "function:frontend/src/HomePage.vue:loadItems"],
+    ["event:frontend/src/HomePage.vue:click:103", "handles", "function:frontend/src/HomePage.vue:goDetails"],
+    ["function:frontend/src/HomePage.vue:loadItems", "calls", "http:vue:GET:/api/items/?include=active"],
+    ["function:frontend/src/HomePage.vue:goDetails", "navigates_to", "route:vue:/details"],
+    ["http:vue:GET:/api/items/?include=active", "resolves_to", "django_url:/api/items/"],
+    ["django_url:/api/items/", "resolves_to", "django_view:backend/shop/views.py:item_list"],
+    ["django_view:backend/shop/views.py:item_list", "calls", "function:backend/shop/services.py:list_active_items"],
+    ["function:backend/shop/services.py:list_active_items", "accesses", "query:backend/shop/services.py:list_active_items:Item.filter"],
+    ["query:backend/shop/services.py:list_active_items:Item.filter", "accesses", "model:backend/shop/models.py:Item"],
+    ["function:backend/shop/services.py:external_status_boundary", "calls", "external:GET:https://inventory.example.test/status"]
+  ],
+  "diagnostics": [
+    "unresolved_dynamic_target"
+  ]
+}
