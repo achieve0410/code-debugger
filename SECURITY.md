@@ -6,7 +6,8 @@ Security fixes are provided for the latest release line.
 
 | Version | Supported |
 | --- | --- |
-| 0.1.x | Yes |
+| 0.2.x | Yes |
+| 0.1.x | No |
 | Earlier versions | No |
 
 ## Reporting a vulnerability
@@ -28,9 +29,10 @@ request or response bodies, query values, absolute local roots, source excerpts,
 or data from an analyzed project. Use synthetic placeholders and minimized
 structural facts.
 
-A maintainer will acknowledge the report, assess impact, and coordinate a fix
-and disclosure. Please allow time for a patched release before public
-disclosure.
+The maintainer aims to acknowledge a report within seven calendar days, assess
+its impact, and coordinate a fix and disclosure. Remediation timing depends on
+the scope of the issue and no fixed resolution SLA is promised. Please allow
+time for a patched release before public disclosure.
 
 ## Security boundary
 

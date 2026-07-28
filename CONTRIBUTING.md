@@ -90,3 +90,8 @@ A pull request should:
 
 Maintainers may request changes or close proposals that broaden data collection,
 weaken fail-closed behavior, or fall outside the project's supported boundary.
+
+## Maintainer releases
+
+Use the [release checklist](docs/releasing.md) to keep public versions, supported
+release lines, verification evidence, and GitHub release notes consistent.
