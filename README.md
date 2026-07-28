@@ -21,6 +21,15 @@ remain stable compatibility identifiers in `v0.2.x`.
 It binds the UI/API to loopback HTTPS. It does not contact production services,
 databases, or external URLs, and it has no telemetry or export path.
 
+## Demo
+
+[![code-debugger v0.2.0 showing Routes, an expanded orders execution graph, Flow Outline, and Evidence Inspector for the synthetic Nuxt and Django fixture](https://github.com/achieve0410/code-debugger/releases/download/v0.2.0/code-debugger-v0.2.0-demo.png)](https://github.com/achieve0410/code-debugger/releases/download/v0.2.0/code-debugger-v0.2.0-demo.png)
+
+*Actual `v0.2.0` workbench using only synthetic `fixtures/nuxt-django` data.
+Select **Analyze**, choose `/orders`, and use **Expand all** to reveal the
+frontend-to-Django flow. Select any node or edge to inspect its bounded evidence
+on the right. Click the image for the full-size view.*
+
 ## What it shows
 
 For the synthetic Nuxt/Django fixture, selecting `/orders` exposes a bounded
