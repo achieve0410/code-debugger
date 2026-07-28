@@ -50,11 +50,11 @@ officially representing the project in public spaces.
 
 ## Enforcement
 
-To report unacceptable behavior, open a
-[Code of Conduct report request](https://github.com/achieve0410/code-debugger/issues/new?title=Code+of+Conduct+report+request)
-without including incident details or personal information. A maintainer will
-establish a non-public contact channel for the report. Platform-level abuse may
-also be reported directly through
+To report unacceptable behavior privately, email
+[achieve0410@gmail.com](mailto:achieve0410@gmail.com). Include only the
+information needed to assess the report, and do not publish incident details in
+an issue or discussion. Platform-level abuse may also be reported directly
+through
 [GitHub Support](https://support.github.com/contact/report-abuse).
 
 All reports will be reviewed promptly and fairly. Maintainers will respect the
