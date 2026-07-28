@@ -21,10 +21,32 @@ remain stable compatibility identifiers in `v0.2.x`.
 It binds the UI/API to loopback HTTPS. It does not contact production services,
 databases, or external URLs, and it has no telemetry or export path.
 
+## What it shows
+
+For the synthetic Nuxt/Django fixture, selecting `/orders` exposes a bounded
+chain like:
+
+```text
+/orders
+  -> frontend/pages/orders/index.vue
+  -> POST /api/orders/
+  -> request payload
+  -> orders.urls: POST /api/orders/
+  -> orders.views.order_collection
+  -> orders.models.Order
+```
+
+By contrast, a dynamic `/orders/:id` request remains `Unresolved` when its route
+value cannot be proven finite. The graph shows the supported evidence without
+guessing across that boundary.
+
 ## Setup and run
 
 Requirements: macOS/Linux, Python 3.13, OpenSSL, and access to the official
 Node.js/npm/PyPI/Playwright distributions used by bootstrap.
+
+The `v0.2.x` releases are source-only. This project does not publish npm/PyPI
+packages or prebuilt binaries; use the pinned bootstrap workflow below.
 
 ```sh
 git clone https://github.com/achieve0410/code-debugger.git
@@ -216,12 +238,22 @@ Local/generated/sensitive artifacts (`venv/`, `node_modules/`, `pem/`,
 `.kg-debugger/`, `web/dist/`, reports, coverage, logs, and `.env*`) stay out of
 Git.
 
+## Getting help
+
+- Use [GitHub Discussions](https://github.com/achieve0410/code-debugger/discussions)
+  for usage questions and open-ended design conversations.
+- Use the repository issue forms for reproducible bugs and bounded feature
+  requests, with synthetic non-sensitive examples only.
+- Report vulnerabilities privately according to [SECURITY.md](SECURITY.md);
+  never disclose sensitive details in a public issue or discussion.
+
 ## Contributing and security
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull-request
 requirements and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community
 standards. Report vulnerabilities privately according to
-[SECURITY.md](SECURITY.md); never disclose sensitive details in a public issue.
+[SECURITY.md](SECURITY.md). Maintainers should follow the
+[release checklist](docs/releasing.md).
 
 ## License
 
