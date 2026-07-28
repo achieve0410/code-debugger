@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "docs": [
+    "docs/analyzer-conformance.md",
+    "CONTRIBUTING.md"
+  ],
+  "workflow": {
+    "fixtureRoot": "fixtures/",
+    "expectedRoot": "fixtures/expected/",
+    "focusedCommand": "npm run test:js",
+    "fullCommand": "./scripts/check.sh",
+    "frontendAnalyzerCommand": "node analyzers/index.mjs --repository <namespace> --frontend-only <fixture-root>"
+  },
+  "supportMatrix": [
+    {
+      "framework": "React",
+      "status": "supported-bounded",
+      "fixture": "fixtures/react-django-realistic",
+      "limitations": [
+        "dynamic targets remain Unresolved"
+      ]
+    },
+    {
+      "framework": "Vue 3",
+      "status": "supported-bounded",
+      "fixture": "fixtures/vue-django",
+      "limitations": [
+        "dynamic components remain Unresolved"
+      ]
+    },
+    {
+      "framework": "Nuxt 3+",
+      "status": "supported-bounded",
+      "fixture": "fixtures/nuxt-django",
+      "limitations": [
+        "server/api routes are terminal Unresolved boundaries"
+      ]
+    },
+    {
+      "framework": "Django",
+      "status": "supported-bounded",
+      "fixture": "fixtures/react-django/backend",
+      "limitations": [
+        "custom converters and unproven dynamic values remain Unresolved"
+      ]
+    }
+  ],
+  "fixtureCases": [
+    {
+      "id": "react-realistic-frontend",
+      "root": "fixtures/react-django-realistic",
+      "repository": "conformance",
+      "frontendOnly": true,
+      "summary": {
+        "routes": [
+          "route:react:/",
+          "route:react:/customers",
+          "route:react:/orders",
+          "route:react:/orders/:orderId"
+        ],
+        "nodeKinds": {
+          "component": 1,
+          "frontend_route": 4,
+          "function": 7,
+          "http_call": 6,
+          "page": 4,
+          "request_payload": 1,
+          "ui_event": 4,
+          "unresolved_target": 6
+        },
+        "edgeKinds": {
+          "calls": 6,
+          "carries": 1,
+          "contains": 4,
+          "handles": 4,
+          "navigates_to": 2,
+          "renders": 4,
+          "resolves_to": 6
+        },
+        "diagnostics": [],
+        "boundedUrlProofs": 0
+      }
+    },
+    {
+      "id": "react-critical-frontend",
+      "root": "fixtures/react-django",
+      "repository": "conformance",
+      "frontendOnly": true,
+      "summary": {
+        "routes": [
+          "route:react:/",
+          "route:react:/details"
+        ],
+        "nodeKinds": {
+          "component": 6,
+          "frontend_route": 2,
+          "function": 2,
+          "http_call": 2,
+          "page": 2,
+          "request_payload": 2,
+          "ui_event": 3,
+          "unresolved_target": 3
+        },
+        "edgeKinds": {
+          "branches_to": 1,
+          "calls": 2,
+          "carries": 2,
+          "contains": 3,
+          "handles": 2,
+          "navigates_to": 1,
+          "renders": 7,
+          "resolves_to": 2
+        },
+        "diagnostics": [],
+        "boundedUrlProofs": 0
+      }
+    },
+    {
+      "id": "vue-critical-frontend",
+      "root": "fixtures/vue-django",
+      "repository": "conformance",
+      "frontendOnly": true,
+      "summary": {
+        "routes": [
+          "route:vue:/",
+          "route:vue:/details"
+        ],
+        "nodeKinds": {
+          "component": 1,
+          "frontend_route": 2,
+          "function": 2,
+          "http_call": 1,
+          "page": 2,
+          "request_payload": 1,
+          "ui_event": 2,
+          "unresolved_target": 2
+        },
+        "edgeKinds": {
+          "branches_to": 1,
+          "calls": 1,
+          "carries": 1,
+          "contains": 2,
+          "handles": 2,
+          "navigates_to": 1,
+          "renders": 3,
+          "resolves_to": 1
+        },
+        "diagnostics": [],
+        "boundedUrlProofs": 0
+      }
+    },
+    {
+      "id": "nuxt-critical-frontend",
+      "root": "fixtures/nuxt-django",
+      "repository": "conformance",
+      "frontendOnly": true,
+      "summary": {
+        "routes": [
+          "route:nuxt:/",
+          "route:nuxt:/orders",
+          "route:nuxt:/orders/:id"
+        ],
+        "nodeKinds": {
+          "component": 4,
+          "frontend_route": 3,
+          "function": 3,
+          "http_call": 6,
+          "request_payload": 1,
+          "ui_event": 3,
+          "unresolved_target": 6
+        },
+        "edgeKinds": {
+          "calls": 6,
+          "carries": 1,
+          "contains": 3,
+          "handles": 3,
+          "navigates_to": 2,
+          "renders": 3,
+          "resolves_to": 6
+        },
+        "diagnostics": [],
+        "boundedUrlProofs": 0
+      }
+    }
+  ]
+}
