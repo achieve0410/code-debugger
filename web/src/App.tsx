@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, u
 
 export type EvidenceKind = "observed" | "inferred" | "unresolved";
 type Layer = "frontend" | "http" | "backend" | "data" | "external" | "unresolved";
-type Selection = { type: "node" | "edge"; id: string } | null;
+export type Selection = { type: "node" | "edge"; id: string } | null;
 type Evidence = { kind: EvidenceKind; adapter: string; adapterVersion: string; reason?: string; eventId?: string; timestamp?: string };
 type Source = { repository: string; path: string; line?: number; endLine?: number; symbol?: string };
 export type GraphNode = { id: string; kind: string; identityKey: string; label: string; layer: Layer; source: Source; evidence: Evidence[]; confidence: number; metadata: Record<string, unknown> };
@@ -206,6 +206,66 @@ const edgeKinds = new Set(["renders", "contains", "handles", "navigates_to", "ca
 const layerByKind: Record<string, Layer[]> = { frontend_route: ["frontend"], page: ["frontend"], component: ["frontend"], ui_event: ["frontend"], function: ["frontend", "backend"], http_call: ["http"], request_payload: ["http"], django_url_pattern: ["backend"], django_view: ["backend"], model: ["data"], query_boundary: ["data"], external_service: ["external"], unresolved_target: ["unresolved"] };
 const tuples: Record<string, string[]> = { renders: ["frontend_route:page", "frontend_route:component", "page:component", "component:component"], contains: ["page:ui_event", "component:ui_event", "page:function", "component:function"], handles: ["ui_event:function", "ui_event:unresolved_target"], navigates_to: ["page:frontend_route", "component:frontend_route", "function:frontend_route", "page:unresolved_target", "component:unresolved_target", "function:unresolved_target"], calls: ["page:http_call", "component:http_call", "function:http_call", "page:function", "component:function", "function:function", "django_view:function", "function:external_service", "django_view:external_service", "page:unresolved_target", "component:unresolved_target", "function:unresolved_target", "django_view:unresolved_target"], carries: ["http_call:request_payload"], resolves_to: ["http_call:django_url_pattern", "http_call:external_service", "http_call:unresolved_target", "request_payload:django_url_pattern", "request_payload:external_service", "request_payload:unresolved_target", "django_url_pattern:django_view", "django_url_pattern:unresolved_target"], invokes: ["django_view:function", "function:function", "django_view:unresolved_target", "function:unresolved_target"], accesses: ["django_view:query_boundary", "function:query_boundary", "query_boundary:model", "query_boundary:unresolved_target"], branches_to: ["page:unresolved_target", "component:unresolved_target", "function:unresolved_target", "django_view:unresolved_target"] };
 const evidenceReasons: Record<EvidenceKind, string[]> = { inferred: ["ast_route_declaration", "ast_symbol_declaration", "ast_call", "ast_handler_binding", "ast_import_binding", "literal_url", "finite_url_domain", "request_payload_shape", "django_url_declaration", "django_view_binding", "django_query_call", "external_boundary", "exact_endpoint", "declared_path", "configured_base", "dynamic_converter"], unresolved: ["dynamic_target_unproven", "referenced_target_missing", "python_module_unproven", "python_module_ambiguous", "url_target_unmatched", "url_target_ambiguous", "unsupported_syntax"], observed: ["runtime_coherent_endpoint", "runtime_coherent_view", "runtime_coherent_resolution"] };
+
+export type RemediationFocusTarget = { type: "node" | "edge"; id: string };
+export type RemediationInput = { kind: "diagnostic"; code: string; diagnosticId: string; severity: string; nodeId?: string; edgeId?: string; candidateIds?: string[] } | { kind: "evidence"; reason: string; evidenceKind: EvidenceKind; ownerId: string; ownerType: "node" | "edge" };
+export type RemediationCard = { key: string; source: string; title: string; guidance: string; focusTarget: RemediationFocusTarget | null };
+const diagnosticRemediation: Record<string, { title: string; guidance: string }> = {
+  frontend_analyzer_unavailable: { title: "Frontend analyzer unavailable", guidance: "Check the local analyzer setup for this repository, then run a static analysis again." },
+  frontend_analyzer_failed: { title: "Frontend analyzer failed", guidance: "Check the local frontend analyzer output, fix the unsupported project issue, then run a static analysis again." },
+  frontend_analyzer_invalid_output: { title: "Invalid frontend analyzer output", guidance: "Inspect the analyzer contract for this repository and rerun static analysis after the output is valid." },
+  source_read_failed: { title: "Source file unreadable", guidance: "Check that the local source file is readable from the configured repository root, then refresh the static snapshot." },
+  unsupported_syntax: { title: "Unsupported syntax", guidance: "Inspect the selected unresolved source area and add a supported static pattern or fixture coverage." },
+  unresolved_dynamic_target: { title: "Dynamic target unproven", guidance: "Inspect the dynamic target and add a statically provable route, call, or unresolved boundary." },
+  unresolved_referenced_target: { title: "Referenced target missing", guidance: "Check the referenced declaration and make the target visible to the local static analyzer." },
+  unresolved_django_url: { title: "Django URL unresolved", guidance: "Check the Django URL declaration shape and keep unsupported patterns represented as unresolved." },
+  python_import_module_unresolved: { title: "Python module unresolved", guidance: "Check the static Python import root proof so the module can be resolved without importing code." },
+  python_import_module_ambiguous: { title: "Python module ambiguous", guidance: "Reduce the static import candidates until one local module can be proven." },
+  bounded_url_proof_invalid: { title: "Bounded URL proof invalid", guidance: "Check the bounded URL proof inputs and rerun analysis after the proof is contract-valid." },
+  url_target_unmatched: { title: "URL target unmatched", guidance: "Inspect the request shape and Django URL declarations so the request remains unresolved or has one exact target." },
+  url_target_ambiguous: { title: "URL target ambiguous", guidance: "Inspect the visible candidate targets and adjust the route proof so exactly one target remains." },
+  runtime_capture_empty: { title: "Runtime capture empty", guidance: "Use a capture ID that has local runtime receipt events, or analyze without a capture for the static graph." },
+  runtime_event_unmatched: { title: "Runtime event unmatched", guidance: "Inspect the static endpoint and view identities; unmatched runtime events remain transient diagnostics only." },
+  runtime_event_ambiguous: { title: "Runtime event ambiguous", guidance: "Inspect the visible static candidates; ambiguous runtime events remain transient diagnostics only." },
+  runtime_identity_conflict: { title: "Runtime identity conflict", guidance: "Check that the runtime endpoint and view identities describe one canonical static flow." }
+};
+const unresolvedEvidenceRemediation: Record<string, { title: string; guidance: string }> = {
+  dynamic_target_unproven: { title: "Dynamic target unproven", guidance: "Inspect this unresolved target and keep it unresolved until a static target proof exists." },
+  referenced_target_missing: { title: "Referenced target missing", guidance: "Check the local declaration that should provide this target and rerun static analysis." },
+  python_module_unproven: { title: "Python module unproven", guidance: "Check the static import-root proof without importing Django code." },
+  python_module_ambiguous: { title: "Python module ambiguous", guidance: "Narrow the local import candidates until one module is statically proven." },
+  url_target_unmatched: { title: "URL target unmatched", guidance: "Compare the request shape with visible Django URL patterns and leave it unresolved until one target proves." },
+  url_target_ambiguous: { title: "URL target ambiguous", guidance: "Inspect the visible candidates and remove the ambiguity in the static URL proof." },
+  unsupported_syntax: { title: "Unsupported syntax", guidance: "Keep the unsupported construct unresolved or replace it with a supported static pattern." }
+};
+function visibleFocusTarget(target: RemediationFocusTarget | null, visible: { nodes: readonly GraphNode[]; edges: readonly GraphEdge[] }): RemediationFocusTarget | null {
+  if (!target) return null;
+  const items = target.type === "node" ? visible.nodes : visible.edges;
+  return items.some((item) => item.id === target.id) ? target : null;
+}
+function diagnosticActionInput(diagnostic: Diagnostic): RemediationInput {
+  return { kind: "diagnostic", code: diagnostic.code, diagnosticId: diagnostic.id, severity: diagnostic.severity, nodeId: diagnostic.nodeId, edgeId: diagnostic.edgeId, candidateIds: diagnostic.candidateIds };
+}
+export function buildRemediationCards(inputs: readonly RemediationInput[], visible: { nodes: readonly GraphNode[]; edges: readonly GraphEdge[] }): RemediationCard[] {
+  const visibleNodeIds = new Set(visible.nodes.map((node) => node.id));
+  return inputs.flatMap((input) => {
+    if (input.kind === "diagnostic") {
+      const mapped = diagnosticRemediation[input.code];
+      if (!mapped) return [];
+      const candidate = [...(input.candidateIds ?? [])].sort().find((candidateId) => visibleNodeIds.has(candidateId));
+      let focusTarget: RemediationFocusTarget | null = null;
+      if (candidate) focusTarget = { type: "node", id: candidate };
+      else if (input.nodeId) focusTarget = { type: "node", id: input.nodeId };
+      else if (input.edgeId) focusTarget = { type: "edge", id: input.edgeId };
+      const target = visibleFocusTarget(focusTarget, visible);
+      return [{ key: `diagnostic:${input.diagnosticId}`, source: `Diagnostic: ${kindWords(input.code)}`, title: mapped.title, guidance: mapped.guidance, focusTarget: target }];
+    }
+    if (input.evidenceKind !== "unresolved") return [];
+    const mapped = unresolvedEvidenceRemediation[input.reason];
+    if (!mapped) return [];
+    return [{ key: `evidence:${input.ownerType}:${input.ownerId}:${input.reason}`, source: `Evidence: ${kindWords(input.reason)}`, title: mapped.title, guidance: mapped.guidance, focusTarget: null }];
+  }).sort((left, right) => left.source < right.source ? -1 : left.source > right.source ? 1 : left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
+}
 const diagnosticCatalog: Record<string, [string, string, string[]]> = {
   frontend_analyzer_unavailable: ["warning", "Frontend analyzer is unavailable.", ["repository"]], frontend_analyzer_failed: ["error", "Frontend analyzer failed.", ["repository"]], frontend_analyzer_invalid_output: ["error", "Frontend analyzer returned invalid output.", ["repository"]], source_read_failed: ["warning", "A source file could not be read.", ["repository", "source"]], unsupported_syntax: ["warning", "Unsupported syntax was left unresolved.", ["repository", "source", "nodeId"]], unresolved_dynamic_target: ["warning", "A dynamic target could not be proven.", ["repository", "source", "nodeId"]], unresolved_referenced_target: ["warning", "A referenced target was not declared in the analyzed graph.", ["repository", "source", "nodeId"]], unresolved_django_url: ["warning", "A Django URL declaration could not be resolved statically.", ["repository", "source"]], python_import_module_unresolved: ["warning", "A Python import module could not be proven.", ["repository", "source", "nodeId"]], python_import_module_ambiguous: ["warning", "A Python import module has multiple valid candidates.", ["repository", "source", "nodeId"]], bounded_url_proof_invalid: ["error", "A bounded URL proof was invalid.", ["repository"]], url_target_unmatched: ["warning", "No unique Django URL target matched the request shape.", ["repository", "nodeId"]], url_target_ambiguous: ["warning", "Multiple Django URL targets matched the request shape.", ["repository", "nodeId", "candidateIds"]], runtime_capture_empty: ["info", "The selected runtime capture contains no events.", []], runtime_event_unmatched: ["warning", "The runtime event did not match one canonical flow.", ["eventId"]], runtime_event_ambiguous: ["warning", "The runtime event matched multiple canonical flows.", ["eventId", "candidateIds"]], runtime_identity_conflict: ["warning", "The runtime event identities do not describe one canonical flow.", ["eventId", "candidateIds"]]
 };
@@ -442,6 +502,156 @@ function reachableIds(graph: GraphSnapshotV2, root: string) {
   return { nodes, edges };
 }
 
+export type FocusPathStep = { node: GraphNode; incomingEdge: GraphEdge | null; alternateParents: number };
+export type FocusBackEdge = { edge: GraphEdge; sourceLabel: string; targetLabel: string };
+export type FocusProjection = { steps: FocusPathStep[]; selectedAlternateParents: number; backEdges: FocusBackEdge[]; detached: GraphNode[] };
+function compareGraphEdgeIds(left: GraphEdge, right: GraphEdge): number {
+  if (left.id < right.id) return -1;
+  if (left.id > right.id) return 1;
+  return 0;
+}
+function compareIncomingParent(nodeById: Map<string, GraphNode>, left: GraphEdge, right: GraphEdge): number {
+  const edgeOrder = compareGraphEdgeIds(left, right);
+  if (edgeOrder !== 0) return edgeOrder;
+  const leftSourceId = nodeById.get(left.source)?.id ?? left.source;
+  const rightSourceId = nodeById.get(right.source)?.id ?? right.source;
+  if (leftSourceId < rightSourceId) return -1;
+  if (leftSourceId > rightSourceId) return 1;
+  return 0;
+}
+function compareGraphNodeIds(left: GraphNode, right: GraphNode): number {
+  if (left.id < right.id) return -1;
+  if (left.id > right.id) return 1;
+  return 0;
+}
+export function buildFocusProjection(nodes: readonly GraphNode[], edges: readonly GraphEdge[], rootId: string | null, selection: Selection): FocusProjection {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
+  if (nodeById.size !== nodes.length || edgeById.size !== edges.length || edges.some((edge) => !nodeById.has(edge.source) || !nodeById.has(edge.target))) throw new Error("focus_projection_invalid_input");
+  const selectedEdge = selection?.type === "edge" ? edgeById.get(selection.id) ?? null : null;
+  let selectedNodeId = rootId;
+  if (selection?.type === "node") selectedNodeId = selection.id;
+  else if (selectedEdge) selectedNodeId = selectedEdge.target;
+  let start: string | null = null;
+  if (selectedNodeId && nodeById.has(selectedNodeId)) start = selectedNodeId;
+  else if (rootId && nodeById.has(rootId)) start = rootId;
+  const incoming = new Map<string, GraphEdge[]>();
+  const outgoing = new Map<string, GraphEdge[]>();
+  for (const edge of edges) {
+    const into = incoming.get(edge.target) ?? []; into.push(edge); incoming.set(edge.target, into);
+    const out = outgoing.get(edge.source) ?? []; out.push(edge); outgoing.set(edge.source, out);
+  }
+  for (const list of incoming.values()) list.sort((left, right) => compareIncomingParent(nodeById, left, right));
+  for (const list of outgoing.values()) list.sort(compareGraphEdgeIds);
+
+  const reached = new Set<string>();
+  if (rootId && nodeById.has(rootId)) {
+    const queue = [rootId]; reached.add(rootId);
+    for (let index = 0; index < queue.length; index += 1) for (const edge of outgoing.get(queue[index]) ?? []) if (!reached.has(edge.target)) { reached.add(edge.target); queue.push(edge.target); }
+  }
+
+  if (!start) return { steps: [], selectedAlternateParents: 0, backEdges: [], detached: [...nodes].filter((node) => !reached.has(node.id)).sort(compareGraphNodeIds) };
+  const reverse: FocusPathStep[] = [];
+  const backEdges: FocusBackEdge[] = [];
+  const ancestry = new Set<string>();
+  let current: string | null = start;
+  while (current && nodeById.has(current)) {
+    if (ancestry.has(current)) break;
+    ancestry.add(current);
+    const parents = incoming.get(current) ?? [];
+    const preferred: GraphEdge[] = selectedEdge && selectedEdge.target === current ? [selectedEdge, ...parents.filter((edge) => edge.id !== selectedEdge.id)] : parents;
+    const chosen: GraphEdge | null = preferred[0] ?? null;
+    reverse.push({ node: nodeById.get(current)!, incomingEdge: chosen, alternateParents: Math.max(0, parents.length - 1) });
+    if (!chosen) break;
+    if (ancestry.has(chosen.source)) {
+      backEdges.push({ edge: chosen, sourceLabel: nodeById.get(chosen.source)!.label, targetLabel: nodeById.get(chosen.target)!.label });
+      break;
+    }
+    current = chosen.source;
+  }
+  const selectedAlternateParents = reverse[0]?.alternateParents ?? 0;
+  return { steps: reverse.reverse(), selectedAlternateParents, backEdges, detached: [...nodes].filter((node) => !reached.has(node.id)).sort(compareGraphNodeIds) };
+}
+
+export type StaticDiffCategory = "routes" | "nodes" | "edges" | "diagnostics";
+export type StaticDiffStatus = "added" | "removed" | "changed";
+export type StaticDiffEntry = { category: StaticDiffCategory; id: string; status: StaticDiffStatus };
+export type StaticDiffProjection = { entries: StaticDiffEntry[]; counts: Record<StaticDiffStatus, number>; total: number };
+type StaticDiffSnapshot = { schemaVersion: number; repositorySetId: string; routes: readonly { id: string }[]; nodes: readonly { id: string }[]; edges: readonly { id: string }[]; diagnostics: readonly { id: string }[] };
+const staticDiffCategories = ["routes", "nodes", "edges", "diagnostics"] as const;
+export function buildStaticDiffProjection(previous: StaticDiffSnapshot, next: StaticDiffSnapshot): StaticDiffProjection | null {
+  if (previous.schemaVersion !== next.schemaVersion || previous.repositorySetId !== next.repositorySetId) return null;
+  const entries: StaticDiffEntry[] = [];
+  for (const category of staticDiffCategories) {
+    const before = new Map(previous[category].map((record) => [record.id, record]));
+    const after = new Map(next[category].map((record) => [record.id, record]));
+    const ids = [...new Set([...before.keys(), ...after.keys()])].sort();
+    for (const id of ids) {
+      const left = before.get(id);
+      const right = after.get(id);
+      if (!left && right) entries.push({ category, id, status: "added" });
+      else if (left && !right) entries.push({ category, id, status: "removed" });
+      else if (left && right && canonical(left) !== canonical(right)) entries.push({ category, id, status: "changed" });
+    }
+  }
+  const counts = { added: 0, removed: 0, changed: 0 };
+  for (const entry of entries) counts[entry.status] += 1;
+  return { entries, counts, total: entries.length };
+}
+
+export type StaticFlowNode = { node: GraphNode; incoming: { edge: GraphEdge; sourceLabel: string }[]; outgoing: { edge: GraphEdge; targetLabel: string }[] };
+export type StaticFlowLayer = { layer: Layer; nodes: StaticFlowNode[] };
+export type StaticFlowEdge = { edge: GraphEdge; sourceLabel: string; targetLabel: string; sourceLayer: Layer; targetLayer: Layer };
+export type StaticFlowProjection = { layers: StaticFlowLayer[]; edges: StaticFlowEdge[]; detached: GraphNode[]; backEdges: FocusBackEdge[] };
+export function buildStaticFlowProjection(nodes: readonly GraphNode[], edges: readonly GraphEdge[], rootId: string | null, selection: Selection): StaticFlowProjection {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const edgeById = new Set(edges.map((edge) => edge.id));
+  if (nodeById.size !== nodes.length || edgeById.size !== edges.length || edges.some((edge) => !nodeById.has(edge.source) || !nodeById.has(edge.target))) throw new Error("static_flow_invalid_input");
+  const focus = buildFocusProjection(nodes, edges, rootId, selection);
+  const detachedIds = new Set(focus.detached.map((node) => node.id));
+  const incoming = new Map<string, { edge: GraphEdge; sourceLabel: string }[]>();
+  const outgoing = new Map<string, { edge: GraphEdge; targetLabel: string }[]>();
+  for (const edge of [...edges].sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0)) {
+    const source = nodeById.get(edge.source)!;
+    const target = nodeById.get(edge.target)!;
+    const inList = incoming.get(edge.target) ?? []; inList.push({ edge, sourceLabel: source.label }); incoming.set(edge.target, inList);
+    const outList = outgoing.get(edge.source) ?? []; outList.push({ edge, targetLabel: target.label }); outgoing.set(edge.source, outList);
+  }
+  const orderedNodes = [...nodes].filter((node) => !detachedIds.has(node.id)).sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+  const grouped = layers.map((layer) => ({
+    layer,
+    nodes: orderedNodes.filter((node) => node.layer === layer).map((node) => ({ node, incoming: incoming.get(node.id) ?? [], outgoing: outgoing.get(node.id) ?? [] }))
+  })).filter((group) => group.nodes.length > 0);
+  const edgeRows = [...edges].map((edge) => {
+    const source = nodeById.get(edge.source)!; const target = nodeById.get(edge.target)!;
+    return { edge, sourceLabel: source.label, targetLabel: target.label, sourceLayer: source.layer, targetLayer: target.layer };
+  }).sort((left, right) => layers.indexOf(left.sourceLayer) - layers.indexOf(right.sourceLayer) || layers.indexOf(left.targetLayer) - layers.indexOf(right.targetLayer) || (left.edge.id < right.edge.id ? -1 : left.edge.id > right.edge.id ? 1 : 0));
+  return { layers: grouped, edges: edgeRows, detached: focus.detached, backEdges: focus.backEdges };
+}
+
+export type ReceiptAnnotation = { ownerType: "node" | "edge"; ownerId: string; ownerLabel: string; evidenceReason: string };
+export type ReceiptEntry = { eventId: string; timestamp: string; annotations: ReceiptAnnotation[] };
+export type ObservedReceiptProjection = { entries: ReceiptEntry[] };
+export function buildObservedReceiptProjection(nodes: readonly GraphNode[], edges: readonly GraphEdge[]): ObservedReceiptProjection {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const receipts = new Map<string, ReceiptEntry>();
+  const append = (eventId: string, timestamp: string, annotation: ReceiptAnnotation) => {
+    const key = `${timestamp}\0${eventId}`;
+    const entry = receipts.get(key) ?? { eventId, timestamp, annotations: [] };
+    if (!entry.annotations.some((item) => item.ownerType === annotation.ownerType && item.ownerId === annotation.ownerId && item.evidenceReason === annotation.evidenceReason)) entry.annotations.push(annotation);
+    receipts.set(key, entry);
+  };
+  for (const node of nodes) for (const record of node.evidence) if (record.kind === "observed" && record.eventId && record.timestamp) append(record.eventId, record.timestamp, { ownerType: "node", ownerId: node.id, ownerLabel: node.label, evidenceReason: record.reason ? kindWords(record.reason) : "observed evidence" });
+  for (const edge of edges) for (const record of edge.evidence) if (record.kind === "observed" && record.eventId && record.timestamp) {
+    const source = nodeById.get(edge.source);
+    const target = nodeById.get(edge.target);
+    append(record.eventId, record.timestamp, { ownerType: "edge", ownerId: edge.id, ownerLabel: `${source?.label ?? "Unknown"} → ${target?.label ?? "Unknown"} · ${kindWords(edge.kind)}`, evidenceReason: record.reason ? kindWords(record.reason) : "observed evidence" });
+  }
+  const entries = [...receipts.values()].map((entry) => ({ ...entry, annotations: [...entry.annotations].sort((left, right) => left.ownerType.localeCompare(right.ownerType) || left.ownerLabel.localeCompare(right.ownerLabel) || left.ownerId.localeCompare(right.ownerId) || left.evidenceReason.localeCompare(right.evidenceReason)) }))
+    .sort((left, right) => left.timestamp.localeCompare(right.timestamp) || left.eventId.localeCompare(right.eventId));
+  return { entries };
+}
+
 function stateForError(error: ApiError): GraphState {
   if (error.error === "invalid_graph_response") return "invalid";
   if (error.status === 404 && error.error === "snapshot_not_found") return "empty";
@@ -542,8 +752,9 @@ export function cytoscapeStyles(tokens: GraphTokens): cytoscape.StylesheetJson {
 
 type StylingFault = { message: "Graph styling is unavailable. Use Flow Outline." } | null;
 type OperationAlert = { cause: "validation"; serial: number; message: string } | { cause: "operation"; operationId: number; message: string } | null;
-type WorkbenchModel = { graph: GraphSnapshotV2 | null; graphState: GraphState; graphMessage: string; statusText: string; transient: boolean; operation: OperationState; routeId: string | null; expanded: Set<string>; selection: Selection; evidenceFilter: Set<EvidenceKind>; layerFilter: Set<Layer>; routeQuery: string; outlineQuery: string; outlinePage: number; selectionNote: string; operationAlert: OperationAlert; focusKey: string | null };
-const initialModel: WorkbenchModel = { graph: null, graphState: "loading", graphMessage: "", statusText: "", transient: false, operation: { phase: "idle", id: 0 }, routeId: null, expanded: new Set(), selection: null, evidenceFilter: new Set(kinds), layerFilter: new Set(layers), routeQuery: "", outlineQuery: "", outlinePage: 0, selectionNote: "", operationAlert: null, focusKey: null };
+type SelectionHistory = { entries: Exclude<Selection, null>[]; index: number };
+type WorkbenchModel = { graph: GraphSnapshotV2 | null; graphState: GraphState; graphMessage: string; statusText: string; transient: boolean; staticBaseline: GraphSnapshotV2 | null; staticDiff: StaticDiffProjection | null; operation: OperationState; routeId: string | null; expanded: Set<string>; selection: Selection; selectionHistory: SelectionHistory; evidenceFilter: Set<EvidenceKind>; layerFilter: Set<Layer>; routeQuery: string; outlineQuery: string; outlinePage: number; selectionNote: string; operationAlert: OperationAlert; focusKey: string | null };
+const initialModel: WorkbenchModel = { graph: null, graphState: "loading", graphMessage: "", statusText: "", transient: false, staticBaseline: null, staticDiff: null, operation: { phase: "idle", id: 0 }, routeId: null, expanded: new Set(), selection: null, selectionHistory: { entries: [], index: -1 }, evidenceFilter: new Set(kinds), layerFilter: new Set(layers), routeQuery: "", outlineQuery: "", outlinePage: 0, selectionNote: "", operationAlert: null, focusKey: null };
 function visibleGraph(graph: GraphSnapshotV2, routeId: string | null, expanded: Set<string>, evidenceFilter: Set<EvidenceKind>, layerFilter: Set<Layer>) {
   const route = graph.routes.find((item) => item.id === routeId);
   const scoped = route ? routeScope(graph, route.nodeId, expanded) : { nodes: [], edges: [] };
@@ -551,6 +762,31 @@ function visibleGraph(graph: GraphSnapshotV2, routeId: string | null, expanded: 
   const ids = new Set(nodes.map((node) => node.id));
   return { nodes, edges: scoped.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target) && evidenceFilter.has(strongest(edge.evidence))) };
 }
+
+function sameSelection(left: Selection, right: Selection) { return left?.type === right?.type && left?.id === right?.id; }
+function isVisibleSelection(selection: Selection, visible: { nodes: readonly GraphNode[]; edges: readonly GraphEdge[] }) {
+  return Boolean(selection && (selection.type === "node" ? visible.nodes : visible.edges).some((item) => item.id === selection.id));
+}
+function pushSelectionHistory(history: SelectionHistory, selection: Selection): SelectionHistory {
+  if (!selection) return history;
+  const current = history.entries[history.index] ?? null;
+  if (sameSelection(current, selection)) return history;
+  return { entries: [...history.entries.slice(0, history.index + 1), selection], index: history.index + 1 };
+}
+function retainVisibleHistory(history: SelectionHistory, visible: { nodes: readonly GraphNode[]; edges: readonly GraphEdge[] }, selection: Selection): SelectionHistory {
+  const entries = history.entries.filter((entry) => isVisibleSelection(entry, visible));
+  if (!entries.length) return { entries: [], index: -1 };
+  const selectedIndex = selection ? entries.findIndex((entry) => sameSelection(entry, selection)) : -1;
+  return { entries, index: selectedIndex >= 0 ? selectedIndex : Math.min(history.index, entries.length - 1) };
+}
+function moveSelectionHistory(history: SelectionHistory, visible: { nodes: readonly GraphNode[]; edges: readonly GraphEdge[] }, direction: -1 | 1): { selection: Selection; history: SelectionHistory } | null {
+  for (let index = history.index + direction; index >= 0 && index < history.entries.length; index += direction) {
+    const selection = history.entries[index];
+    if (isVisibleSelection(selection, visible)) return { selection, history: { entries: history.entries, index } };
+  }
+  return null;
+}
+
 function reducer(model: WorkbenchModel, action: any): WorkbenchModel {
   if (action.type === "operation/start") return { ...model, operation: { phase: "running", id: action.id, kind: action.kind }, graphMessage: "", statusText: "", operationAlert: null, selectionNote: "" };
   if (action.id !== undefined && (model.operation.phase !== "running" || model.operation.id !== action.id)) return model;
@@ -560,17 +796,33 @@ function reducer(model: WorkbenchModel, action: any): WorkbenchModel {
     const scope = routeId ? reachableIds(graph, graph.routes.find((route) => route.id === routeId)!.nodeId) : { nodes: new Set<string>(), edges: new Set<string>() };
     const expanded = survivingRoute ? new Set([...model.expanded].filter((id) => scope.nodes.has(id))) : new Set<string>();
     const visible = visibleGraph(graph, routeId, expanded, model.evidenceFilter, model.layerFilter);
-    const selection = !survivingRoute ? null : model.selection && (model.selection.type === "node" ? visible.nodes : visible.edges).some((item) => item.id === model.selection!.id) ? model.selection : null;
+    const selection = !survivingRoute ? null : model.selection && isVisibleSelection(model.selection, visible) ? model.selection : null;
+    const selectionHistory = survivingRoute ? retainVisibleHistory(model.selectionHistory, visible, selection) : { entries: [], index: -1 };
     if (model.operation.phase !== "running") return model;
     const completion = model.operation.kind === "loading-static" ? "Static snapshot loaded." : model.operation.kind === "analyzing-static" ? "Static analysis complete." : model.operation.kind === "analyzing-capture" ? "Runtime capture analysis complete. Runtime evidence is transient." : "Static snapshot refreshed.";
-    return { ...model, graph, graphState: graph.routes.length ? "ready" : "empty", graphMessage: "", statusText: completion, transient: action.staticReplacement ? false : action.transientResult, operation: { phase: "idle", id: action.id }, routeId, expanded, selection, outlineQuery: "", outlinePage: 0, selectionNote: "", focusKey: action.focusedOutlineKey ?? null, operationAlert: model.operationAlert?.cause === "operation" && model.operationAlert.operationId === action.id ? null : model.operationAlert };
+    const runtimeOverlay = model.operation.kind === "analyzing-capture";
+    let staticBaseline = model.staticBaseline;
+    let staticDiff = model.staticDiff;
+    if (runtimeOverlay) {
+      staticDiff = null;
+    } else if (model.operation.kind === "loading-static" || !staticBaseline) {
+      staticBaseline = graph;
+      staticDiff = null;
+    } else {
+      const nextDiff = buildStaticDiffProjection(staticBaseline, graph);
+      if (nextDiff) {
+        staticBaseline = graph;
+        staticDiff = nextDiff;
+      }
+    }
+    return { ...model, graph, graphState: graph.routes.length ? "ready" : "empty", graphMessage: "", statusText: completion, transient: runtimeOverlay ? true : false, staticBaseline, staticDiff, operation: { phase: "idle", id: action.id }, routeId, expanded, selection, selectionHistory, outlineQuery: "", outlinePage: 0, selectionNote: "", focusKey: action.focusedOutlineKey ?? null, operationAlert: model.operationAlert?.cause === "operation" && model.operationAlert.operationId === action.id ? null : model.operationAlert };
   }
   if (action.type === "operation/failure") {
     const repositoryMismatch = action.errorCode === "repository_set_mismatch" || action.errorCode === "snapshot_repository_set_mismatch";
     const stale = Boolean(!repositoryMismatch && model.graph && model.graph.repositorySetId === action.repositorySetId && (action.errorStatus === 409 || action.errorStatus === 422));
     return {
       ...model,
-      ...(repositoryMismatch ? { graph: null, transient: false, routeId: null, expanded: new Set<string>(), selection: null, outlineQuery: "", outlinePage: 0 } : {}),
+      ...(repositoryMismatch ? { graph: null, transient: false, routeId: null, expanded: new Set<string>(), selection: null, selectionHistory: { entries: [], index: -1 }, outlineQuery: "", outlinePage: 0 } : {}),
       graphState: stale ? model.graphState : stateForError(new ApiError(action.errorStatus ?? 0, action.message)),
       graphMessage: stale ? `stale_graph: ${action.message}` : action.message,
       statusText: "",
@@ -581,19 +833,26 @@ function reducer(model: WorkbenchModel, action: any): WorkbenchModel {
   }
   if (action.type === "operation/finish") return { ...model, operation: { phase: "idle", id: action.id }, selectionNote: "" };
   if (action.type === "validation") return { ...model, operationAlert: { cause: "validation", serial: action.serial, message: action.message } };
+  if (action.type === "history/move") {
+    if (!model.graph) return model;
+    const visible = visibleGraph(model.graph, model.routeId, model.expanded, model.evidenceFilter, model.layerFilter);
+    const moved = moveSelectionHistory(model.selectionHistory, visible, action.direction);
+    return moved ? { ...model, selection: moved.selection, selectionHistory: moved.history, selectionNote: "" } : model;
+  }
   if (action.type === "set") {
     const next = { ...model, ...action.value };
     const visibilityChanged = action.value.routeId !== undefined || action.value.expanded !== undefined || action.value.evidenceFilter !== undefined || action.value.layerFilter !== undefined;
     const interactionChanged = visibilityChanged || action.value.selection !== undefined;
     const clearedStatus = interactionChanged && model.statusText === "Selection cleared because it is no longer visible." ? { ...next, statusText: "" } : next;
-    if (action.value.selection !== undefined) return clearedStatus;
+    if (action.value.selection !== undefined) return { ...clearedStatus, selectionHistory: action.recordHistory === false ? model.selectionHistory : pushSelectionHistory(model.selectionHistory, action.value.selection) };
     if (!visibilityChanged) return next;
     if (!model.graph || !model.selection) return { ...clearedStatus, selectionNote: "" };
     const visible = visibleGraph(model.graph, next.routeId, next.expanded, next.evidenceFilter, next.layerFilter);
     const remainsVisible = (model.selection.type === "node" ? visible.nodes : visible.edges).some((item) => item.id === model.selection!.id);
     if (remainsVisible) return { ...clearedStatus, selectionNote: "" };
+    const selectionHistory = retainVisibleHistory(model.selectionHistory, visible, null);
     const cleared = "Selection cleared because it is no longer visible.";
-    return { ...clearedStatus, selection: null, selectionNote: model.operation.phase === "running" ? cleared : "", statusText: model.operation.phase === "running" ? clearedStatus.statusText : cleared };
+    return { ...clearedStatus, selection: null, selectionHistory, selectionNote: model.operation.phase === "running" ? cleared : "", statusText: model.operation.phase === "running" ? clearedStatus.statusText : cleared };
   }
   return model;
 }
@@ -631,6 +890,10 @@ function App() {
   const selectedRoute = model.graph?.routes.find((route) => route.id === model.routeId) ?? null;
   const visible = useMemo(() => model.graph ? visibleGraph(model.graph, model.routeId, model.expanded, model.evidenceFilter, model.layerFilter) : { nodes: [], edges: [] }, [model.graph, model.routeId, model.expanded, model.evidenceFilter, model.layerFilter]);
   const outline = useMemo(() => selectedRoute ? buildFlowOutline(visible.nodes, visible.edges, selectedRoute.nodeId) : [], [visible, selectedRoute]);
+  const focusProjection = useMemo(() => buildFocusProjection(visible.nodes, visible.edges, selectedRoute?.nodeId ?? null, model.selection), [visible, selectedRoute, model.selection]);
+  const staticFlowProjection = useMemo(() => buildStaticFlowProjection(visible.nodes, visible.edges, selectedRoute?.nodeId ?? null, model.selection), [visible, selectedRoute, model.selection]);
+  const receiptProjection = useMemo(() => model.transient && model.graph ? buildObservedReceiptProjection(model.graph.nodes, model.graph.edges) : { entries: [] }, [model.transient, model.graph]);
+  const [centerView, setCenterView] = useState<"graph" | "static-flow">("graph");
   const filteredOutline = useMemo(() => filterFlowOutline(outline, model.outlineQuery), [outline, model.outlineQuery]);
   const pageCount = Math.max(1, Math.ceil(filteredOutline.length / OUTLINE_PAGE_SIZE)); const page = Math.min(model.outlinePage, pageCount - 1); const pageEntries = filteredOutline.slice(page * OUTLINE_PAGE_SIZE, (page + 1) * OUTLINE_PAGE_SIZE);
   useLayoutEffect(() => {
@@ -666,12 +929,45 @@ function App() {
   if (!model.graph || model.graphState !== "ready") return <main className="app-shell"><header className="command-bar" aria-label="Execution Evidence Workbench commands"><div className="command-identity"><div><p className="eyebrow">Execution Evidence Workbench</p><h1>Execution evidence</h1></div></div><div className="command-status" aria-label="Debugger status"><span className="status-pill">API {health}</span><span id="snapshot-status" data-testid="snapshot-status" className="status-pill">Static snapshot</span></div><div className="command-actions">{captureControl}{controls}</div></header><section className="recovery-state" data-testid={`graph-state-${model.graphState}`} aria-busy={model.operation.phase === "running"}><h2>{model.graphState === "loading" ? "Loading execution graph" : model.graphState === "empty" ? "No routes are available" : model.graphState === "incompatible" ? "Graph incompatible" : model.graphState === "invalid" ? "Invalid graph response" : "Graph unavailable"}</h2><p data-testid="graph-message">{model.graphMessage || "Load an analyzed GraphSnapshotV2 to inspect routes."}</p><div id="operation-status" className="operation-status" data-testid="operation-status" role="status" aria-live="polite" aria-atomic="true">{runningText}</div>{(model.operationAlert?.message ?? stylingFault?.message) && <div id="operation-alert" data-testid="operation-alert" role="alert" aria-live="assertive" aria-atomic="true">{model.operationAlert?.message ?? stylingFault?.message}</div>}</section></main>;
   const routes = model.graph.routes.filter((route) => route.path.toLocaleLowerCase("en-US").includes(model.routeQuery.toLocaleLowerCase("en-US")));
   const routeNames = routeAccessibleNames(model.graph.routes);
-  return <main className="app-shell"><header className="command-bar" aria-label="Execution Evidence Workbench commands"><div className="command-identity"><div><p className="eyebrow">Execution Evidence Workbench</p><h1>Execution evidence</h1></div></div><div className="command-status" aria-label="Debugger status"><span className="status-pill">{activeConfig?.project ?? model.graph.project}</span><span className="status-pill">API {health}</span><span id="snapshot-status" className="status-pill" data-testid="snapshot-status"><span data-testid={model.transient ? "transient-status" : "static-status"}>{model.transient ? "Runtime evidence · transient" : "Static snapshot"}</span></span></div><div className="command-actions">{captureControl}{controls}</div></header><div id="operation-status" className="operation-status" data-testid="operation-status" role="status" aria-live="polite" aria-atomic="true">{runningText || completion}</div>{model.selectionNote && <div data-testid="selection-status" aria-live="off">{model.selectionNote}</div>}{alert && <div id="operation-alert" data-testid="operation-alert" role="alert" aria-live="assertive" aria-atomic="true">{alert}</div>}
+  return <main className="app-shell"><header className="command-bar" aria-label="Execution Evidence Workbench commands"><div className="command-identity"><div><p className="eyebrow">Execution Evidence Workbench</p><h1>Execution evidence</h1></div></div><div className="command-status" aria-label="Debugger status"><span className="status-pill">{activeConfig?.project ?? model.graph.project}</span><span className="status-pill">API {health}</span><span id="snapshot-status" className="status-pill" data-testid="snapshot-status"><span data-testid={model.transient ? "transient-status" : "static-status"}>{model.transient ? "Runtime evidence · transient" : "Static snapshot"}</span></span></div><div className="command-actions">{captureControl}{controls}</div></header><div id="operation-status" className="operation-status" data-testid="operation-status" role="status" aria-live="polite" aria-atomic="true">{runningText || completion}</div>{model.staticDiff && <StaticDiffSummary diff={model.staticDiff} />}{model.transient && receiptProjection.entries.length > 0 && <ReceiptProjectionSummary projection={receiptProjection} />}{model.selectionNote && <div data-testid="selection-status" aria-live="off">{model.selectionNote}</div>}{alert && <div id="operation-alert" data-testid="operation-alert" role="alert" aria-live="assertive" aria-atomic="true">{alert}</div>}
 {model.graphMessage && <p className="alert-banner" data-testid="graph-message">{model.graphMessage}</p>}
     <section id="workbench" data-testid="workbench" className="workbench" aria-label="Execution Evidence Workbench" aria-busy={model.operation.phase === "running"}><nav id="routes-region" data-testid="routes-region" className="sidebar routes-panel" aria-label="Routes"><label className="field-label" htmlFor="route-search">Routes</label><input id="route-search" data-testid="route-search" className="search" value={model.routeQuery} onChange={(event) => updateInteraction({ routeQuery: event.target.value })} placeholder="Search routes" /><div className="route-list" data-testid="route-list">{routes.filter((route) => route.framework !== "django").map((route) => <RouteButton key={route.id} route={route} accessibleName={routeNames.get(route.id)!} current={model.routeId} choose={(routeId) => updateInteraction({ routeId, expanded: new Set() }, true)} />)}<details className="backend-route-group"><summary>Backend routes</summary>{routes.filter((route) => route.framework === "django").map((route) => <RouteButton key={route.id} route={route} accessibleName={routeNames.get(route.id)!} current={model.routeId} choose={(routeId) => updateInteraction({ routeId, expanded: new Set() }, true)} />)}</details></div><fieldset className="filter-group"><legend>Evidence</legend>{kinds.map((kind) => <label className="check-row" data-testid={`evidence-filter-${kind}`} key={kind}><input type="checkbox" checked={model.evidenceFilter.has(kind)} onChange={() => updateInteraction({ evidenceFilter: toggle(model.evidenceFilter, kind) }, true)} />{evidenceLabel[kind]}</label>)}</fieldset><fieldset className="filter-group"><legend>Layers</legend>{layers.map((layer) => <label className="check-row" data-testid={`layer-filter-${layer}`} key={layer}><input type="checkbox" checked={model.layerFilter.has(layer)} onChange={() => updateInteraction({ layerFilter: toggle(model.layerFilter, layer) }, true)} />{layer}</label>)}</fieldset></nav>
-    <section id="graph-region" data-testid="graph-region" className="graph-stage" aria-labelledby="graph-heading"><div className="graph-toolbar"><h2 id="graph-heading">Graph</h2><strong>{selectedRoute?.path}</strong><span id="visible-node-count" data-testid="visible-node-count">{visible.nodes.length} nodes</span><span id="visible-edge-count" data-testid="visible-edge-count">{visible.edges.length} edges</span><button onClick={() => updateInteraction({ expanded: reachableIds(model.graph!, selectedRoute!.nodeId).nodes }, true)}>Expand all</button><button onClick={() => updateInteraction({ expanded: new Set() }, true)}>Collapse branches</button></div><CytoscapeGraph nodes={visible.nodes} edges={visible.edges} root={selectedRoute!.nodeId} selected={model.selection} select={choose} setStylingFault={reportStylingFault} /><section id="flow-outline" data-testid="flow-outline" className="flow-outline" aria-labelledby="flow-outline-heading" onFocusCapture={(event) => { const key = (event.target as HTMLElement).getAttribute("data-outline-key"); if (key) { focusedOutlineKeyRef.current = key; outlineFocusActiveRef.current = true; } }} onBlurCapture={(event) => { if (!(event.relatedTarget as HTMLElement | null)?.getAttribute("data-outline-key")) outlineFocusActiveRef.current = false; }}><div className="flow-outline-toolbar"><h2 id="flow-outline-heading" tabIndex={-1}>Flow Outline</h2><input id="outline-search" data-testid="outline-search" className="search" value={model.outlineQuery} onChange={(event) => updateInteraction({ outlineQuery: event.target.value, outlinePage: 0 })} placeholder="Search visible graph entities" /></div><div className="flow-outline-list">{pageEntries.map((entry) => <button id={`graph-${entry.type}-${entry.id}`} className={`outline-row outline-${entry.type}${model.selection?.type === entry.type && model.selection.id === entry.id ? " is-selected" : ""}`} key={outlineKey(entry)} data-outline-key={outlineKey(entry)} data-testid={`graph-${entry.type}-${entry.id}`} aria-label={entry.accessibleName} aria-pressed={model.selection?.type === entry.type && model.selection.id === entry.id} onClick={() => choose({ type: entry.type, id: entry.id })}><span className={`evidence-mark evidence-${entry.evidence}`} aria-hidden="true" /><span>{entry.type === "node" ? entry.label : kindWords(entry.kind)}</span><small>{entry.type === "node" ? `${kindWords(entry.kind)} · ${evidenceLabel[entry.evidence]}` : `${entry.sourceLabel} → ${entry.targetLabel} · ${evidenceLabel[entry.evidence]}`}</small></button>)}</div><div className="outline-pager"><button id="outline-previous" data-testid="outline-previous" disabled={page === 0} onClick={() => updateInteraction({ outlinePage: page - 1 })}>Previous</button><span id="outline-page" data-testid="outline-page">{`Page ${page + 1} of ${pageCount}`}</span><button id="outline-next" data-testid="outline-next" disabled={page === pageCount - 1} onClick={() => updateInteraction({ outlinePage: page + 1 })}>Next</button></div><p id="outline-count" className="outline-count" data-testid="outline-count">{`${filteredOutline.length} of ${outline.length} visible graph entities`}</p>{model.operationAlert && stylingFault && <div className="styling-fallback">{stylingFault.message}</div>}</section></section>
-    <aside id="inspector" data-testid="inspector" className="inspector" aria-labelledby="inspector-heading"><h2 id="inspector-heading">Evidence Inspector</h2><Detail selection={model.selection} graph={model.graph} visible={visible} route={selectedRoute} evidenceFilter={model.evidenceFilter} layerFilter={model.layerFilter} transient={model.transient} /></aside></section></main>;
+    <section id="graph-region" data-testid="graph-region" className="graph-stage" aria-labelledby="graph-heading"><div className="graph-toolbar"><h2 id="graph-heading">Graph</h2><strong>{selectedRoute?.path}</strong><span id="visible-node-count" data-testid="visible-node-count">{visible.nodes.length} nodes</span><span id="visible-edge-count" data-testid="visible-edge-count">{visible.edges.length} edges</span><button onClick={() => updateInteraction({ expanded: reachableIds(model.graph!, selectedRoute!.nodeId).nodes }, true)}>Expand all</button><button onClick={() => updateInteraction({ expanded: new Set() }, true)}>Collapse branches</button><button data-testid="focus-back" disabled={model.selectionHistory.index <= 0} onClick={() => dispatch({ type: "history/move", direction: -1 })}>Back</button><button data-testid="focus-forward" disabled={model.selectionHistory.index < 0 || model.selectionHistory.index >= model.selectionHistory.entries.length - 1} onClick={() => dispatch({ type: "history/move", direction: 1 })}>Forward</button><button data-testid="static-flow-toggle" aria-pressed={centerView === "static-flow"} onClick={() => setCenterView(centerView === "static-flow" ? "graph" : "static-flow")}>{centerView === "static-flow" ? "Show graph" : "Show static flow"}</button></div>{centerView === "graph" ? <CytoscapeGraph nodes={visible.nodes} edges={visible.edges} root={selectedRoute!.nodeId} selected={model.selection} select={choose} setStylingFault={reportStylingFault} /> : <StaticFlowView projection={staticFlowProjection} selection={model.selection} select={choose} />}<FocusPanel projection={focusProjection} selection={model.selection} /><section id="flow-outline" data-testid="flow-outline" className="flow-outline" aria-labelledby="flow-outline-heading" onFocusCapture={(event) => { const key = (event.target as HTMLElement).getAttribute("data-outline-key"); if (key) { focusedOutlineKeyRef.current = key; outlineFocusActiveRef.current = true; } }} onBlurCapture={(event) => { if (!(event.relatedTarget as HTMLElement | null)?.getAttribute("data-outline-key")) outlineFocusActiveRef.current = false; }}><div className="flow-outline-toolbar"><h2 id="flow-outline-heading" tabIndex={-1}>Flow Outline</h2><input id="outline-search" data-testid="outline-search" className="search" value={model.outlineQuery} onChange={(event) => updateInteraction({ outlineQuery: event.target.value, outlinePage: 0 })} placeholder="Search visible graph entities" /></div><div className="flow-outline-list">{pageEntries.map((entry) => <button id={`graph-${entry.type}-${entry.id}`} className={`outline-row outline-${entry.type}${model.selection?.type === entry.type && model.selection.id === entry.id ? " is-selected" : ""}`} key={outlineKey(entry)} data-outline-key={outlineKey(entry)} data-testid={`graph-${entry.type}-${entry.id}`} aria-label={entry.accessibleName} aria-pressed={model.selection?.type === entry.type && model.selection.id === entry.id} onClick={() => choose({ type: entry.type, id: entry.id })}><span className={`evidence-mark evidence-${entry.evidence}`} aria-hidden="true" /><span>{entry.type === "node" ? entry.label : kindWords(entry.kind)}</span><small>{entry.type === "node" ? `${kindWords(entry.kind)} · ${evidenceLabel[entry.evidence]}` : `${entry.sourceLabel} → ${entry.targetLabel} · ${evidenceLabel[entry.evidence]}`}</small></button>)}</div><div className="outline-pager"><button id="outline-previous" data-testid="outline-previous" disabled={page === 0} onClick={() => updateInteraction({ outlinePage: page - 1 })}>Previous</button><span id="outline-page" data-testid="outline-page">{`Page ${page + 1} of ${pageCount}`}</span><button id="outline-next" data-testid="outline-next" disabled={page === pageCount - 1} onClick={() => updateInteraction({ outlinePage: page + 1 })}>Next</button></div><p id="outline-count" className="outline-count" data-testid="outline-count">{`${filteredOutline.length} of ${outline.length} visible graph entities`}</p>{model.operationAlert && stylingFault && <div className="styling-fallback">{stylingFault.message}</div>}</section></section>
+    <aside id="inspector" data-testid="inspector" className="inspector" aria-labelledby="inspector-heading"><h2 id="inspector-heading">Evidence Inspector</h2><Detail selection={model.selection} graph={model.graph} visible={visible} route={selectedRoute} evidenceFilter={model.evidenceFilter} layerFilter={model.layerFilter} transient={model.transient} select={choose} /></aside></section></main>;
 }
+
+function StaticDiffSummary({ diff }: { diff: StaticDiffProjection }) {
+  const label = (entry: StaticDiffEntry) => `${kindWords(entry.category)} ${entry.status}: ${entry.id}`;
+  return <section id="static-diff" className="static-diff" data-testid="static-diff" aria-labelledby="static-diff-heading">
+    <div><h2 id="static-diff-heading">Session static diff</h2><p>Memory-only static-vs-static comparison for this browser session.</p></div>
+    <dl className="static-diff-counts" data-testid="static-diff-counts"><div><dt>Added</dt><dd>{diff.counts.added}</dd></div><div><dt>Removed</dt><dd>{diff.counts.removed}</dd></div><div><dt>Changed</dt><dd>{diff.counts.changed}</dd></div></dl>
+    <div className="static-diff-list" data-testid="static-diff-list">{diff.entries.length ? diff.entries.map((entry) => <span key={`${entry.category}:${entry.status}:${entry.id}`}>{label(entry)}</span>) : <span>No static deltas in this comparison.</span>}</div>
+  </section>;
+}
+
+function ReceiptProjectionSummary({ projection }: { projection: ObservedReceiptProjection }) {
+  return <section id="receipt-projection" className="receipt-projection" data-testid="receipt-projection" aria-labelledby="receipt-projection-heading">
+    <div><h2 id="receipt-projection-heading">Transient receipt projection</h2><p>Current observed graph evidence from this response only; sorted by server receipt provenance timestamp and event ID. Response-only receipt view, not durable runtime history.</p></div>
+    <ol className="receipt-list" data-testid="receipt-list">{projection.entries.map((entry) => <li className="receipt-entry" data-testid="receipt-entry" key={`${entry.timestamp}:${entry.eventId}`}><dl><div><dt>Server receipt provenance timestamp</dt><dd>{entry.timestamp}</dd></div><div><dt>Event ID</dt><dd>{entry.eventId}</dd></div><div><dt>Observed graph annotations</dt><dd>{entry.annotations.map((annotation) => <span key={`${annotation.ownerType}:${annotation.ownerId}:${annotation.evidenceReason}`}>{`${annotation.ownerType}: ${annotation.ownerLabel} · ${annotation.evidenceReason}`}</span>)}</dd></div></dl></li>)}</ol>
+  </section>;
+}
+
+function StaticFlowView({ projection, selection, select }: { projection: StaticFlowProjection; selection: Selection; select: (selection: Selection) => void }) {
+  return <section id="static-flow" className="static-flow" data-testid="static-flow" aria-labelledby="static-flow-heading">
+    <div className="static-flow-heading"><h3 id="static-flow-heading">Static flow projection</h3><span>Layer groups are presentation only, not chronology or runtime replay.</span></div>
+    <div className="static-flow-lanes" data-testid="static-flow-lanes">{projection.layers.map((group) => <section className="static-flow-lane" data-testid={`static-flow-layer-${group.layer}`} key={group.layer} aria-labelledby={`static-flow-layer-heading-${group.layer}`}><h4 id={`static-flow-layer-heading-${group.layer}`}>{group.layer}</h4>{group.nodes.map(({ node, incoming, outgoing }) => <article className={`static-flow-card${selection?.type === "node" && selection.id === node.id ? " is-selected" : ""}`} data-testid={`static-flow-node-${node.id}`} key={node.id}><button className="static-flow-select" onClick={() => select({ type: "node", id: node.id })}><strong>{node.label}</strong><span>{kindWords(node.kind)}</span></button><p>{incoming.length ? `Incoming: ${incoming.map((item) => `${item.sourceLabel} via ${kindWords(item.edge.kind)}`).join(", ")}` : "Incoming: route root or detached seed"}</p><p>{outgoing.length ? `Outgoing: ${outgoing.map((item) => `${item.targetLabel} via ${kindWords(item.edge.kind)}`).join(", ")}` : "Outgoing: none visible"}</p></article>)}</section>)}</div>
+    <div className="static-flow-topology" data-testid="static-flow-topology"><strong>Original topology edges</strong>{projection.edges.map((entry) => <button className={`static-flow-edge${selection?.type === "edge" && selection.id === entry.edge.id ? " is-selected" : ""}`} data-testid={`static-flow-edge-${entry.edge.id}`} key={entry.edge.id} onClick={() => select({ type: "edge", id: entry.edge.id })}>{`${entry.sourceLabel} (${entry.sourceLayer}) → ${entry.targetLabel} (${entry.targetLayer}) · ${kindWords(entry.edge.kind)}`}</button>)}</div>
+    {projection.backEdges.length > 0 && <div className="static-flow-markers" data-testid="static-flow-back-edges"><strong>Bounded back-edge marker</strong>{projection.backEdges.map((entry) => <span key={entry.edge.id}>{`${entry.sourceLabel} → ${entry.targetLabel}`}</span>)}</div>}
+    <div className="static-flow-detached" data-testid="static-flow-detached"><strong>Detached section</strong>{projection.detached.length ? projection.detached.map((node) => <span key={node.id}>{node.label}</span>) : <span>None</span>}</div>
+  </section>;
+}
+
+function FocusPanel({ projection, selection }: { projection: FocusProjection; selection: Selection }) {
+  const pathText = projection.steps.map((step) => step.node.label).join(" → ") || "No visible focus path";
+  const edgeText = projection.steps.flatMap((step) => step.incomingEdge ? [kindWords(step.incomingEdge.kind)] : []).join(" → ") || "No incoming edge on the displayed path";
+  return <section id="focus-projection" className="focus-projection" data-testid="focus-projection" aria-labelledby="focus-projection-heading"><div className="focus-projection-heading"><h3 id="focus-projection-heading">Investigation path</h3><span>Static focus projection · not runtime replay</span></div><dl className="focus-summary"><div><dt>Selection</dt><dd>{selection ? `Selected ${selection.type}` : "Route root"}</dd></div><div><dt>Displayed focus path</dt><dd data-testid="focus-path">{pathText}</dd></div><div><dt>Displayed incoming edges</dt><dd data-testid="focus-edges">{edgeText}</dd></div><div><dt>Alternate parents</dt><dd data-testid="focus-alternates">{projection.selectedAlternateParents}</dd></div></dl>{projection.backEdges.length > 0 && <div className="focus-markers" data-testid="focus-back-edges"><strong>Bounded back-edge marker</strong>{projection.backEdges.map((entry) => <span key={entry.edge.id}>{`${entry.sourceLabel} → ${entry.targetLabel}`}</span>)}</div>}<div className="focus-detached" data-testid="focus-detached"><strong>Detached entities</strong>{projection.detached.length ? projection.detached.map((node) => <span key={node.id}>{node.label}</span>) : <span>None</span>}</div></section>;
+}
+
 function RouteButton({ route, accessibleName, current, choose }: { route: Route; accessibleName: string; current: string | null; choose: (id: string) => void }) { return <button className={route.id === current ? "route-row is-selected" : "route-row"} aria-label={accessibleName} aria-pressed={route.id === current} data-testid={`route-option-${route.path}`} onClick={() => choose(route.id)}><span>{route.path}</span><small>{route.framework}</small></button>; }
 function toggle<T>(source: Set<T>, value: T) { const next = new Set(source); next.has(value) ? next.delete(value) : next.add(value); return next; }
 function CytoscapeGraph({ nodes, edges, root, selected, select, setStylingFault }: { nodes: GraphNode[]; edges: GraphEdge[]; root: string; selected: Selection; select: (selection: Selection) => void; setStylingFault: (fault: StylingFault) => void }) {
@@ -681,7 +977,7 @@ function CytoscapeGraph({ nodes, edges, root, selected, select, setStylingFault 
   useEffect(() => { const instance = cy.current; if (!instance) return; const selectedId = selected?.id || null; const previousId = previousSelectedId.current; if (nodes.length + edges.length <= MAX_STYLED_SELECTION_ELEMENTS) { if (previousId && previousId !== selectedId) instance.$id(previousId).removeClass("selected"); if (selectedId) instance.$id(selectedId).addClass("selected"); } previousSelectedId.current = selectedId; }, [selected, nodes, edges, root]);
   return <div className="cy-shell"><div ref={host} className="cy-stage" data-testid="graph-canvas" role="img" aria-label="Visual execution graph. Use Flow Outline after the canvas to inspect every visible node and edge." aria-describedby="flow-outline-heading" /></div>;
 }
-function Detail({ selection, graph, visible, route, evidenceFilter, layerFilter, transient }: { selection: Selection; graph: GraphSnapshotV2; visible: { nodes: GraphNode[]; edges: GraphEdge[] }; route: Route | null; evidenceFilter: Set<EvidenceKind>; layerFilter: Set<Layer>; transient: boolean }) {
+function Detail({ selection, graph, visible, route, evidenceFilter, layerFilter, transient, select }: { selection: Selection; graph: GraphSnapshotV2; visible: { nodes: GraphNode[]; edges: GraphEdge[] }; route: Route | null; evidenceFilter: Set<EvidenceKind>; layerFilter: Set<Layer>; transient: boolean; select: (selection: Selection) => void }) {
   const selectedNode = selection?.type === "node" ? graph.nodes.find((entry) => entry.id === selection.id) ?? null : null;
   const selectedEdge = selection?.type === "edge" ? graph.edges.find((entry) => entry.id === selection.id) ?? null : null;
   const item = selectedNode ?? selectedEdge;
@@ -689,6 +985,7 @@ function Detail({ selection, graph, visible, route, evidenceFilter, layerFilter,
   if (!item) {
     const reachable = route ? reachableIds(graph, route.nodeId) : { nodes: new Set<string>(), edges: new Set<string>() };
     const diagnostics = graph.diagnostics.filter((diagnostic) => !diagnostic.nodeId && !diagnostic.edgeId && (!diagnostic.repository || diagnostic.repository === route?.repository)).sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+    const actionInputs = diagnostics.map(diagnosticActionInput);
     return <section className="inspector-section" data-testid="selected-detail"><div id="inspector-summary" data-testid="inspector-summary"><h3>Route Summary</h3><dl className="detail-list">
       <div><dt>Route path</dt><dd>{route?.path ?? "No route selected."}</dd></div>
       <div><dt>Framework</dt><dd>{route?.framework ?? "Not reported"}</dd></div>
@@ -699,14 +996,18 @@ function Detail({ selection, graph, visible, route, evidenceFilter, layerFilter,
       <div><dt>Route nodes</dt><dd>{`${visible.nodes.length} of ${reachable.nodes.size} route nodes`}</dd></div>
       <div><dt>Route edges</dt><dd>{`${visible.edges.length} of ${reachable.edges.size} route edges`}</dd></div>
       <div><dt>Graph and repository diagnostics</dt><dd>{diagnostics.length ? diagnostics.map((diagnostic) => <span key={diagnostic.id}>{`${diagnostic.severity}: ${kindWords(diagnostic.code)}. ${diagnostic.message}`}</span>) : "No graph or repository diagnostics."}</dd></div>
-    </dl></div></section>;
+    </dl></div><ActionCenter inputs={actionInputs} visible={visible} select={select} /></section>;
   }
   const records = item.evidence;
   const summary = [...new Set(records.map((record) => evidenceLabel[record.kind]))].join(" + ");
   const diagnostics = graph.diagnostics.filter((diagnostic) => selection && (selection.type === "node" ? diagnostic.nodeId === selection.id : diagnostic.edgeId === selection.id)).sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
-  const confidence = `${(item.confidence * 100).toFixed(1)}%`;
   const node = selectedNode;
   const edge = selectedEdge;
+  const actionInputs: RemediationInput[] = [
+    ...diagnostics.map(diagnosticActionInput),
+    ...records.flatMap((record) => record.kind === "unresolved" && record.reason ? [{ kind: "evidence" as const, reason: record.reason, evidenceKind: record.kind, ownerId: item.id, ownerType: node ? "node" as const : "edge" as const }] : [])
+  ];
+  const confidence = `${(item.confidence * 100).toFixed(1)}%`;
   const sourceNode = edge ? graph.nodes.find((entry) => entry.id === edge.source) ?? null : null;
   const targetNode = edge ? graph.nodes.find((entry) => entry.id === edge.target) ?? null : null;
   const lines = node ? node.source.line === undefined ? "Not reported" : node.source.endLine === undefined || node.source.endLine === node.source.line ? String(node.source.line) : `${node.source.line}–${node.source.endLine}` : "Not reported";
@@ -715,7 +1016,14 @@ function Detail({ selection, graph, visible, route, evidenceFilter, layerFilter,
     <div id="inspector-evidence" data-testid="inspector-evidence"><h4>Evidence</h4><dl className="detail-list"><div><dt>Summary</dt><dd>{summary || "No evidence records."}</dd></div>{records.map((record, index) => <div key={`${record.kind}-${index}`}><dt>{`Evidence record ${index + 1}`}</dt><dd>{`Kind: ${evidenceLabel[record.kind]}; Adapter: ${record.adapter}; Adapter version: ${record.adapterVersion}; Basis: ${record.reason ? kindWords(record.reason) : "Not reported"}`}</dd></div>)}</dl></div>
     <div id="inspector-metadata" data-testid="inspector-metadata"><h4>Metadata</h4><dl className="detail-list"><Metadata kind={item.kind} value={item.metadata} /></dl></div>
     <div id="inspector-diagnostics" data-testid="inspector-diagnostics"><h4>Diagnostics</h4><dl className="detail-list"><div><dt>Diagnostics</dt><dd>{diagnostics.length ? diagnostics.map((diagnostic) => <span key={diagnostic.id}>{`Severity: ${diagnostic.severity}; Code: ${kindWords(diagnostic.code)}; Message: ${diagnostic.message}`}</span>) : "No diagnostics for this selection."}</dd></div></dl></div>
+    <ActionCenter inputs={actionInputs} visible={visible} select={select} />
   </section>;
+}
+
+function ActionCenter({ inputs, visible, select }: { inputs: readonly RemediationInput[]; visible: { nodes: readonly GraphNode[]; edges: readonly GraphEdge[] }; select: (selection: Selection) => void }) {
+  const cards = buildRemediationCards(inputs, visible);
+  if (!cards.length) return null;
+  return <div id="action-center" className="action-center" data-testid="action-center"><h4>Action Center</h4><p>Catalog-backed next steps for closed diagnostics and unresolved evidence.</p><div className="action-card-list">{cards.map((card) => <article className="action-card" data-testid="action-card" key={card.key}><p className="action-source">{card.source}</p><h5>{card.title}</h5><p>{card.guidance}</p>{card.focusTarget && <button className="secondary-action action-focus" data-testid="action-focus" onClick={() => select(card.focusTarget)}>{`Focus ${card.focusTarget.type}`}</button>}</article>)}</div></div>;
 }
 function Metadata({ kind, value }: { kind: string; value: Record<string, unknown> }) {
   const labels: Record<string, string> = { framework: "Framework", declaredPath: "Declared path", frameworkOwners: "Framework owners", eventKind: "Event kind", elementKind: "Element kind", modifiers: "Modifiers", pythonQualifiedName: "Python qualified name", method: "Method", urlResolution: "URL resolution", normalizedPath: "Normalized path", endpointId: "Endpoint ID", queryFieldCount: "Query field count", hasSensitiveQuery: "Contains sensitive query fields", targetRepository: "Target repository", payloadKinds: "Payload kinds", bodyShape: "Body shape", bodyFieldCount: "Body field count", hasSensitiveFields: "Contains sensitive fields", converters: "Converters", operation: "Operation", modelQualifiedName: "Model qualified name", scheme: "Scheme", host: "Host", port: "Port", pathPresent: "Path present", boundaryOnly: "Boundary only", reasonCode: "Reason", candidateIds: "Candidate count", resolutionTier: "Resolution tier" };

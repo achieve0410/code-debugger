@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { readFile, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { buildFlowOutline, buildRoutePresetPositions, cytoscapeStyles, filterFlowOutline, normalizeOutlineQuery, OUTLINE_PAGE_SIZE, validConverterSegmentIndex, type GraphNode, type GraphEdge, type GraphTokens } from "../../web/src/App";
+import { buildFlowOutline, buildFocusProjection, buildObservedReceiptProjection, buildRemediationCards, buildRoutePresetPositions, buildStaticDiffProjection, buildStaticFlowProjection, cytoscapeStyles, filterFlowOutline, normalizeOutlineQuery, OUTLINE_PAGE_SIZE, validConverterSegmentIndex, type GraphNode, type GraphEdge, type GraphTokens, type RemediationInput } from "../../web/src/App";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
@@ -197,6 +197,156 @@ test("enforces the browser converter segmentIndex boundary directly", () => {
   }
   expect(validConverterSegmentIndex(254, 255)).toBe(false);
 });
+
+test("builds deterministic session static diffs by stable id and compatibility", () => {
+  const changedNode = { ...byLabel.Home, label: "Home changed" } as GraphNode;
+  const addedNode = { ...byLabel.Home, id: nodeId("src/added.ts", "component", "Added"), identityKey: "Added", label: "Added" } as GraphNode;
+  const removedEdge = edges[0];
+  const changedDiagnostic = runtimeDiagnostic("url_target_unmatched", "warning", "No unique Django URL target matched the request shape.", { nodeId: byLabel.Unresolved.id });
+  const nextDiagnostic = { ...changedDiagnostic, candidateIds: [byLabel.items.id] };
+  const previous = { ...staticGraph, diagnostics: [changedDiagnostic] };
+  const next = {
+    ...staticGraph,
+    nodes: staticGraph.nodes.map((node) => node.id === byLabel.Home.id ? changedNode : node).concat(addedNode).sort((a, b) => a.id.localeCompare(b.id)),
+    edges: staticGraph.edges.filter((edge) => edge.id !== removedEdge.id),
+    diagnostics: [nextDiagnostic],
+  };
+
+  const diff = buildStaticDiffProjection(previous, next);
+
+  expect(diff).not.toBeNull();
+  expect(diff!.counts).toEqual({ added: 1, removed: 1, changed: 2 });
+  expect(diff!.entries).toEqual([
+    { category: "nodes", id: addedNode.id, status: "added" },
+    { category: "nodes", id: byLabel.Home.id, status: "changed" },
+    { category: "edges", id: removedEdge.id, status: "removed" },
+    { category: "diagnostics", id: changedDiagnostic.id, status: "changed" },
+  ]);
+  expect(buildStaticDiffProjection(previous, { ...next, repositorySetId: "c".repeat(64) })).toBeNull();
+});
+
+test("builds transient observed-evidence receipts grouped and sorted by browser-visible provenance", () => {
+  const later = { ...observedEndpoint, eventId: "33333333-3333-4333-8333-333333333333", timestamp: "2026-01-01T00:00:01.000Z" };
+  const receiptNodes = staticGraph.nodes.map((node) => {
+    if (node.id === byLabel.items.id) return { ...node, evidence: [inferred, later] };
+    if (node.id === byLabel.item_list.id) return { ...node, evidence: [inferred, observedEndpoint] };
+    return node;
+  });
+  const receiptEdges = staticGraph.edges.map((item) => item.target === byLabel.items.id ? { ...item, evidence: [inferred, observedResolution] } : item);
+
+  const projection = buildObservedReceiptProjection(receiptNodes, receiptEdges);
+
+  expect(projection.entries.map((entry) => [entry.timestamp, entry.eventId])).toEqual([
+    ["2026-01-01T00:00:00.000Z", observedEndpoint.eventId],
+    ["2026-01-01T00:00:01.000Z", later.eventId],
+  ]);
+  expect(projection.entries[0].annotations.map((annotation) => `${annotation.ownerType}:${annotation.ownerLabel}:${annotation.evidenceReason}`)).toEqual([
+    "edge:Request payload → items · resolves to:runtime coherent resolution",
+    "node:item_list:runtime coherent endpoint",
+  ]);
+  expect(JSON.stringify(projection)).not.toMatch(/receivedAt|request_body|response_body|headers|cookie|authorization/i);
+});
+
+test("builds branch-aware focus projections with stable parents, selected-edge preference, cycles, and detached nodes", () => {
+  const makeNode = (id: string, label: string) => ({ id, label, kind: "function", identityKey: id, layer: "frontend", source: { repository: "web", path: `${id}.ts` }, evidence: [inferred], confidence: 1, metadata: { frameworkOwners: ["react"] } }) as GraphNode;
+  const focusNodes = [makeNode("n-root", "Root"), makeNode("n-a", "Alpha"), makeNode("n-b", "Beta"), makeNode("n-c", "Choice"), makeNode("n-detached", "Detached")];
+  const makeEdge = (id: string, source: string, target: string) => ({ id, source, target, kind: "calls", evidence: [inferred], confidence: 1, metadata: {} }) as GraphEdge;
+  const focusEdges = [makeEdge("e-10", "n-root", "n-a"), makeEdge("e-20", "n-root", "n-b"), makeEdge("e-30", "n-b", "n-c"), makeEdge("e-40", "n-a", "n-c")];
+
+  const stable = buildFocusProjection(focusNodes, focusEdges, "n-root", { type: "node", id: "n-c" });
+  expect(stable.steps.map((step) => [step.node.id, step.incomingEdge?.id ?? null, step.alternateParents])).toEqual([
+    ["n-root", null, 0],
+    ["n-b", "e-20", 0],
+    ["n-c", "e-30", 1],
+  ]);
+  expect(stable.selectedAlternateParents).toBe(1);
+  expect(stable.detached.map((node) => node.id)).toEqual(["n-detached"]);
+
+  const selectedEdge = buildFocusProjection(focusNodes, focusEdges, "n-root", { type: "edge", id: "e-40" });
+  expect(selectedEdge.steps.map((step) => [step.node.id, step.incomingEdge?.id ?? null])).toEqual([
+    ["n-root", null],
+    ["n-a", "e-10"],
+    ["n-c", "e-40"],
+  ]);
+  expect(selectedEdge.selectedAlternateParents).toBe(1);
+
+  const cycle = buildFocusProjection(focusNodes.filter((node) => node.id !== "n-detached"), [...focusEdges, makeEdge("e-50", "n-c", "n-root")], "n-root", { type: "node", id: "n-root" });
+  expect(cycle.backEdges.map((entry) => `${entry.sourceLabel} → ${entry.targetLabel}`)).toEqual(["Root → Beta"]);
+  expect(cycle.steps.length).toBeLessThanOrEqual(focusNodes.length);
+});
+
+test("builds static flow projection with layer order, preserved topology, payload in http, and detached semantics", () => {
+  const makeNode = (id: string, label: string, kind: string, layer: string) => ({ id, label, kind, identityKey: id, layer, source: { repository: "web", path: `${id}.ts` }, evidence: [inferred], confidence: 1, metadata: kind === "request_payload" ? { payloadKinds: ["body"], bodyShape: "object", bodyFieldCount: 0, queryFieldCount: 0, hasSensitiveFields: false } : {} }) as GraphNode;
+  const flowNodes = [
+    makeNode("n-root", "Route", "frontend_route", "frontend"),
+    makeNode("n-http", "GET /items", "http_call", "http"),
+    makeNode("n-payload", "Payload", "request_payload", "http"),
+    makeNode("n-view", "view", "django_view", "backend"),
+    makeNode("n-model", "Item", "model", "data"),
+    makeNode("n-external", "External", "external_service", "external"),
+    makeNode("n-unresolved", "Unresolved", "unresolved_target", "unresolved"),
+    makeNode("n-detached", "Detached", "model", "data"),
+  ];
+  const makeEdge = (id: string, source: string, target: string, kind: string) => ({ id, source, target, kind, evidence: [inferred], confidence: 1, metadata: {} }) as GraphEdge;
+  const flowEdges = [
+    makeEdge("e-1", "n-root", "n-http", "calls"),
+    makeEdge("e-2", "n-http", "n-payload", "carries"),
+    makeEdge("e-3", "n-payload", "n-view", "resolves_to"),
+    makeEdge("e-4", "n-view", "n-model", "accesses"),
+    makeEdge("e-5", "n-http", "n-external", "resolves_to"),
+    makeEdge("e-6", "n-http", "n-unresolved", "resolves_to"),
+    makeEdge("e-7", "n-model", "n-view", "invokes"),
+  ];
+
+  const projection = buildStaticFlowProjection(flowNodes, flowEdges, "n-root", { type: "edge", id: "e-7" });
+
+  expect(projection.layers.map((group) => group.layer)).toEqual(["frontend", "http", "backend", "data", "external", "unresolved"]);
+  expect(projection.layers.find((group) => group.layer === "http")!.nodes.map((entry) => [entry.node.kind, entry.node.label])).toEqual([["http_call", "GET /items"], ["request_payload", "Payload"]]);
+  expect(projection.edges.map((entry) => `${entry.sourceLabel}->${entry.targetLabel}:${entry.edge.kind}`)).toContain("GET /items->External:resolves_to");
+  expect(projection.edges.map((entry) => `${entry.sourceLabel}->${entry.targetLabel}:${entry.edge.kind}`)).toContain("GET /items->Unresolved:resolves_to");
+  expect(projection.layers.find((group) => group.layer === "external")!.nodes[0].incoming.map((entry) => entry.sourceLabel)).toEqual(["GET /items"]);
+  expect(projection.layers.find((group) => group.layer === "unresolved")!.nodes[0].incoming.map((entry) => entry.sourceLabel)).toEqual(["GET /items"]);
+  expect(projection.backEdges.map((entry) => `${entry.sourceLabel} → ${entry.targetLabel}`)).toEqual(["view → Item"]);
+  expect(projection.detached.map((node) => node.label)).toEqual(["Detached"]);
+  expect(() => buildStaticFlowProjection(flowNodes, [{ ...flowEdges[0], target: "n-missing" }], "n-root", null)).toThrow("static_flow_invalid_input");
+});
+
+test("maps closed diagnostics and unresolved evidence to fail-closed remediation cards", () => {
+  const visible = { nodes: [byLabel.Unresolved as GraphNode], edges: [] as GraphEdge[] };
+  const inputs: RemediationInput[] = [
+    { kind: "diagnostic", diagnosticId: "known", code: "url_target_ambiguous", severity: "warning", candidateIds: [byLabel.items.id, byLabel.Unresolved.id] },
+    { kind: "diagnostic", diagnosticId: "unknown", code: "new_unknown_code", severity: "warning", nodeId: byLabel.Unresolved.id },
+    { kind: "evidence", evidenceKind: "unresolved", reason: "dynamic_target_unproven", ownerId: byLabel.Unresolved.id, ownerType: "node" },
+    { kind: "evidence", evidenceKind: "unresolved", reason: "new_unknown_reason", ownerId: byLabel.Unresolved.id, ownerType: "node" },
+  ];
+
+  const cards = buildRemediationCards(inputs, visible);
+
+  expect(cards.map((card) => card.source)).toEqual(["Diagnostic: url target ambiguous", "Evidence: dynamic target unproven"]);
+  expect(cards[0].focusTarget).toEqual({ type: "node", id: byLabel.Unresolved.id });
+  expect(cards[1].focusTarget).toBeNull();
+  expect(JSON.stringify(cards)).not.toMatch(/new_unknown|https?:\/\/|cookie|authorization|\/Users\//i);
+});
+
+test("shows Action Center cards for selected unresolved evidence and diagnostics", async ({ page }) => {
+  const diagnostic = runtimeDiagnostic("unresolved_dynamic_target", "warning", "A dynamic target could not be proven.", { nodeId: byLabel.Unresolved.id });
+  await mock(page, { graph: { ...staticGraph, diagnostics: [diagnostic] } });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Expand all" }).click();
+  await graphNode(page, "Unresolved").click();
+
+  const center = page.getByTestId("action-center");
+  await expect(center).toBeVisible();
+  await expect(center).toContainText("Action Center");
+  await expect(center).toContainText("Diagnostic: unresolved dynamic target");
+  await expect(center).toContainText("Evidence: dynamic target unproven");
+  await expect(center.locator("a")).toHaveCount(0);
+  await expect(center).not.toContainText(/https?:\/\/|cookie|authorization|\/Users\//i);
+  await page.getByTestId("action-focus").first().click();
+  await expect(page.getByTestId("selected-detail")).toContainText("Unresolved");
+  await expect(graphNode(page, "Unresolved")).toHaveAttribute("aria-pressed", "true");
+});
+
 test("accepts unresolved candidates from GET and Analyze, but rejects forged concrete and final-state residue", async ({ page }) => {
   const positives = [
     unresolvedResolutionGraph(false),
@@ -331,6 +481,8 @@ test("Analyze derives runtime validation exclusively from the submitted capture"
     await page.getByTestId("runtime-capture-input").fill(`capture-${index}`);
     await page.getByTestId("analyze-button").click();
     await expect(page.getByTestId("transient-status")).toBeVisible();
+    if (graph === transientGraph) await expect(page.getByTestId("receipt-projection")).toBeVisible();
+    else await expect(page.getByTestId("receipt-projection")).toHaveCount(0);
     await expect(page.getByTestId("graph-message")).toHaveCount(0);
   }
 });
@@ -348,6 +500,16 @@ test("analyze captures exact payload, overlays observed evidence, and refresh re
   await page.getByTestId("analyze-button").click();
   await expect.poll(() => requests).toEqual([{ runtimeCaptureId: "capture:one" }]);
   await expect(page.getByTestId("transient-status")).toBeVisible();
+  const receipt = page.getByTestId("receipt-projection");
+  await expect(receipt).toContainText("Transient receipt projection");
+  await expect(receipt).toContainText("Current observed graph evidence from this response only");
+  await expect(receipt).toContainText("Server receipt provenance timestamp");
+  await expect(page.getByTestId("receipt-entry")).toHaveCount(1);
+  await expect(page.getByTestId("receipt-list")).toContainText(observedEndpoint.timestamp);
+  await expect(page.getByTestId("receipt-list")).toContainText(observedEndpoint.eventId);
+  await expect(page.getByTestId("receipt-list")).toContainText("node: items · runtime coherent endpoint");
+  await expect(page.getByTestId("receipt-list")).toContainText("edge: Request payload → items · resolves to · runtime coherent resolution");
+  await expect(receipt).not.toContainText(/execution order|trace|replay|stack|receivedAt|request_body|response_body|headers|cookie|authorization/i);
   await page.getByRole("button", { name: "Expand all" }).click();
   await graphNode(page, "items").click();
   await expect(page.getByTestId("inspector-identity")).toHaveText("IdentityLabelitemsKinddjango url patternLayerbackendConfidence90.0%");
@@ -363,6 +525,7 @@ test("analyze captures exact payload, overlays observed evidence, and refresh re
   await expect(page.getByTestId("inspector-metadata")).toHaveText("MetadataResolution tierexact endpointTarget repositoryweb");
   await page.getByTestId("refresh-button").click();
   await expect(page.getByTestId("transient-status")).toHaveCount(0);
+  await expect(page.getByTestId("receipt-projection")).toHaveCount(0);
   await graphNode(page, "items").click();
   await expect(page.getByTestId("inspector-evidence")).toHaveText("EvidenceSummaryInferredEvidence record 1Kind: Inferred; Adapter: e2e; Adapter version: 1; Basis: ast call");
   expect(graphGets).toBe(2);
@@ -418,6 +581,114 @@ test("refresh rebinds a retained selection and clears a removed node or edge sel
   await page.getByTestId("refresh-button").click(); await expect(page.getByTestId("selected-detail")).toContainText("GET https://api.example.test:443");
   await page.getByTestId("refresh-button").click(); await expect(page.getByTestId("selected-detail")).toContainText("Route Summary");
 });
+
+test("shows branch-aware focus history, selected-edge parent preference, bounded cycle markers, and refresh retention", async ({ page }) => {
+  const alternateUnresolved = edge(byLabel.Home.id, byLabel.Unresolved.id, "calls", {}, [unresolved]);
+  const cycle = edge(byLabel.list_active_items.id, byLabel.loadItems.id, "calls");
+  const branchGraph = { ...staticGraph, edges: [...staticGraph.edges, alternateUnresolved, cycle].sort((left, right) => left.id.localeCompare(right.id)) };
+  let get = 0;
+  await mock(page, { graph: branchGraph });
+  await page.route("**/api/graph", (route) => route.fulfill({ json: ++get === 1 ? branchGraph : branchGraph }));
+  await page.goto("/");
+  await expect(page.getByTestId("focus-projection")).toContainText("Static focus projection · not runtime replay");
+  await expect(page.getByTestId("focus-detached")).toContainText("None");
+  await page.getByRole("button", { name: "Expand all" }).click();
+
+  await graphNode(page, "Home").click();
+  await expect(page.getByTestId("focus-path")).toContainText("/ → Home");
+  const selectedUnresolved = edgeId(byLabel.loadItems.id, byLabel.Unresolved.id, "calls");
+  await page.getByTestId(`graph-edge-${selectedUnresolved}`).click();
+  await expect(page.getByTestId("focus-alternates")).toHaveText("1");
+  await expect(page.getByTestId("focus-path")).toContainText("loadItems → Unresolved");
+  await expect(page.getByTestId("focus-edges")).toContainText("calls");
+
+  await page.getByTestId("focus-back").click();
+  await expect(page.getByTestId("selected-detail")).toContainText("Home");
+  await page.getByTestId("focus-forward").click();
+  await expect(page.getByTestId("selected-detail")).toContainText("Relationship");
+  await expect(page.getByTestId("focus-path")).toContainText("loadItems → Unresolved");
+
+  await page.getByTestId(`graph-edge-${cycle.id}`).click();
+  await expect(page.getByTestId("focus-back-edges")).toContainText("Bounded back-edge marker");
+  await expect(page.getByTestId("focus-projection")).not.toContainText(/runtime call stack|critical path/i);
+  await page.getByTestId("refresh-button").click();
+  await expect(page.getByTestId("operation-status")).toHaveText("Static snapshot refreshed.");
+  await expect(page.getByTestId("selected-detail")).toContainText("Relationship");
+  await expect(page.getByTestId("focus-back-edges")).toContainText("Bounded back-edge marker");
+});
+
+test("toggles a center-region static flow projection without reparenting external or unresolved topology", async ({ page }) => {
+  await mock(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Expand all" }).click();
+  await page.getByTestId("static-flow-toggle").click();
+
+  const flow = page.getByTestId("static-flow");
+  await expect(flow).toBeVisible();
+  await expect(flow).toContainText("Static flow projection");
+  await expect(flow).toContainText("presentation only, not chronology or runtime replay");
+  await expect(page.getByTestId("graph-region").getByTestId("static-flow")).toBeVisible();
+  await expect(page.getByTestId("static-flow-layer-frontend")).toBeVisible();
+  await expect(page.getByTestId("static-flow-layer-http")).toBeVisible();
+  await expect(page.getByTestId("static-flow-layer-backend")).toBeVisible();
+  await expect(page.getByTestId("static-flow-layer-data")).toBeVisible();
+  await expect(page.getByTestId("static-flow-layer-external")).toContainText("GET https://api.example.test:443");
+  await expect(page.getByTestId("static-flow-layer-unresolved")).toContainText("Unresolved");
+  await expect(page.getByTestId(`static-flow-node-${byLabel["Request payload"].id}`)).toBeVisible();
+  await expect(page.getByTestId(`static-flow-edge-${edgeId(byLabel.loadItems.id, byLabel["GET https://api.example.test:443"].id, "calls")}`)).toContainText("loadItems (frontend) → GET https://api.example.test:443 (external)");
+  await expect(page.getByTestId(`static-flow-edge-${edgeId(byLabel.loadItems.id, byLabel.Unresolved.id, "calls")}`)).toContainText("loadItems (frontend) → Unresolved (unresolved)");
+  await expect(page.getByTestId("static-flow-detached")).toContainText("None");
+  await expect(flow).not.toContainText(/stack trace|time travel|profiling/i);
+
+  await page.getByTestId(`static-flow-node-${byLabel.Unresolved.id}`).getByRole("button").click();
+  await expect(page.getByTestId("selected-detail")).toContainText("Unresolved");
+  await page.getByTestId("static-flow-toggle").click();
+  await expect(page.getByTestId("graph-canvas")).toBeVisible();
+});
+
+test("shows session-local static diff for static operations and suppresses it for runtime capture", async ({ page }) => {
+  const addedNode = { ...byLabel.Home, id: nodeId("src/added.ts", "component", "Added"), kind: "component", identityKey: "Added", label: "Added", source: { repository: "web", path: "src/added.ts", line: 1 }, metadata: { frameworkOwners: ["react"] } };
+  const changedGraph = {
+    ...staticGraph,
+    nodes: staticGraph.nodes.map((node) => node.id === byLabel.Home.id ? { ...node, label: "Home changed" } : node).concat(addedNode).sort((a, b) => a.id.localeCompare(b.id)),
+  };
+  await mock(page, { graph: staticGraph });
+  await page.unroute("**/api/analyze");
+  await page.route("**/api/analyze", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ json: typeof body.runtimeCaptureId === "string" ? transientGraph : changedGraph });
+  });
+  await page.goto("/");
+  await expect(page.getByTestId("operation-status")).toHaveText("Static snapshot loaded.");
+  await expect(page.getByTestId("static-diff")).toHaveCount(0);
+
+  await page.getByTestId("analyze-button").click();
+  await expect(page.getByTestId("operation-status")).toHaveText("Static analysis complete.");
+  await expect(page.getByTestId("static-status")).toHaveText("Static snapshot");
+  await expect(page.getByTestId("static-diff")).toContainText("Memory-only static-vs-static comparison");
+  await expect(page.getByTestId("static-diff-counts")).toHaveText(/Added\s*1\s*Removed\s*0\s*Changed\s*1/);
+  await expect(page.getByTestId("static-diff-list")).toContainText(`nodes added: ${addedNode.id}`);
+  await expect(page.getByTestId("static-diff-list")).toContainText(`nodes changed: ${byLabel.Home.id}`);
+  await expect(page.getByTestId("static-diff")).not.toContainText(/history|replay|change log/i);
+
+  await page.getByTestId("runtime-capture-input").fill("capture-1");
+  await page.getByTestId("analyze-button").click();
+  await expect(page.getByTestId("operation-status")).toHaveText("Runtime capture analysis complete. Runtime evidence is transient.");
+  await expect(page.getByTestId("transient-status")).toHaveText("Runtime evidence · transient");
+  await expect(page.getByTestId("static-diff")).toHaveCount(0);
+
+  await page.getByTestId("refresh-button").click();
+  await expect(page.getByTestId("operation-status")).toHaveText("Static snapshot refreshed.");
+  await expect(page.getByTestId("static-status")).toHaveText("Static snapshot");
+  await expect(page.getByTestId("static-diff-counts")).toHaveText(/Added\s*0\s*Removed\s*1\s*Changed\s*1/);
+  await expect(page.getByTestId("static-diff-list")).toContainText(`nodes removed: ${addedNode.id}`);
+  await page.reload();
+  await expect(page.getByTestId("operation-status")).toHaveText("Static snapshot loaded.");
+  await expect(page.getByTestId("static-diff")).toHaveCount(0);
+  const storage = await page.evaluate(() => ({ local: Object.keys(localStorage), session: Object.keys(sessionStorage) }));
+  expect(storage).toEqual({ local: [], session: [] });
+});
+
 test("scope expansion, collapse, cyclic/disconnected input, selection rebind, and filters are deterministic", async ({ page }) => {
   const cyclic = { ...staticGraph, edges: [...staticGraph.edges, edge(byLabel.list_active_items.id, byLabel.loadItems.id, "calls")].sort((a, b) => a.id.localeCompare(b.id)) };
   await mock(page, { graph: cyclic }); await page.goto("/");

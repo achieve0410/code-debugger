@@ -239,6 +239,7 @@ bypass TLS verification.
 - `src/kg_debugger/` — Django analysis, graph/storage, runtime, HTTPS API
 - `web/src/` — React/Cytoscape UI
 - `fixtures/` — deterministic React/Vue/Nuxt and Django examples
+- `fixtures/analyzer-conformance.json` — stable analyzer fixture manifest
 - `docs/` — graph and security contracts
 - `scripts/` — bootstrap, run, and verification entry points
 - `tests/` — Python, Node, and Playwright checks
@@ -255,6 +256,13 @@ Git.
   requests, with synthetic non-sensitive examples only.
 - Report vulnerabilities privately according to [SECURITY.md](SECURITY.md);
   never disclose sensitive details in a public issue or discussion.
+
+## Analyzer conformance
+
+Contributors can validate analyzer changes with the static fixture workflow in
+[docs/analyzer-conformance.md](docs/analyzer-conformance.md). It documents the
+synthetic fixture contribution process, support/limitations matrix, and release
+metadata consistency checks used by `npm run test:js`.
 
 ## Contributing and security
 

@@ -55,6 +55,22 @@ Read [docs/graph-contract.md](docs/graph-contract.md) and
 [docs/security-model.md](docs/security-model.md) before changing graph, API,
 runtime, storage, or security behavior.
 
+## Analyzer fixture contributions
+
+Analyzer fixtures are synthetic conformance inputs, not plugin packages or real
+project samples. Add frontend examples under `fixtures/<name>/frontend/`,
+Django examples under `fixtures/<name>/backend/`, and update
+`fixtures/analyzer-conformance.json` when the fixture is part of the stable
+conformance set. Keep expected outputs structural and value-free.
+
+See [docs/analyzer-conformance.md](docs/analyzer-conformance.md) for the
+fixture workflow, support/limitations matrix, and release metadata consistency
+checks. The focused validation command is:
+
+```sh
+npm run test:js
+```
+
 ## Verification
 
 Run the focused test for the changed area and then the complete check:
