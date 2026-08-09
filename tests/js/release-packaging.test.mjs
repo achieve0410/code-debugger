@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const packageScript = path.join(repoRoot, "scripts/package-release.sh");
 const installScript = path.join(repoRoot, "scripts/install-smoke.sh");
+const envScript = path.join(repoRoot, "scripts/env.sh");
 
 async function git(cwd, args) {
   return execFileAsync("git", args, { cwd });
@@ -63,6 +64,43 @@ async function createReleaseRepository(t, options = {}) {
   await git(root, ["commit", "-qm", "release fixture"]);
   return root;
 }
+
+test("sourced env preserves an explicit debugger root", async (t) => {
+  const unrelatedCwd = await fs.mkdtemp(path.join(os.tmpdir(), "code-debugger-env-"));
+  t.after(() => fs.rm(unrelatedCwd, { recursive: true, force: true }));
+
+  const { stdout } = await execFileAsync(
+    "sh",
+    [
+      "-c",
+      [
+        '. "$1"',
+        "printf '%s\\n' \\",
+        '  "$KG_DEBUGGER_ROOT" \\',
+        '  "$KG_DEBUGGER_NODE" \\',
+        '  "$PYTHONPATH" \\',
+        '  "$PLAYWRIGHT_BROWSERS_PATH" \\',
+        '  "$KG_DEBUGGER_CERT" \\',
+        '  "$KG_DEBUGGER_KEY"',
+      ].join("\n"),
+      "env-contract",
+      envScript,
+    ],
+    {
+      cwd: unrelatedCwd,
+      env: { ...process.env, KG_DEBUGGER_ROOT: repoRoot, PYTHONPATH: "" },
+    },
+  );
+
+  assert.deepEqual(stdout.trim().split("\n"), [
+    repoRoot,
+    path.join(repoRoot, "venv/node24.14.1/bin/node"),
+    path.join(repoRoot, "src"),
+    path.join(repoRoot, "venv/node24.14.1/playwright-browsers"),
+    path.join(repoRoot, "pem/cert.pem"),
+    path.join(repoRoot, "pem/key.pem"),
+  ]);
+});
 
 test("release builder creates a versioned verified source archive", async (t) => {
   const root = await createReleaseRepository(t);
