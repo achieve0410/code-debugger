@@ -43,7 +43,10 @@ async function createReleaseRepository(t, options = {}) {
       path.join(root, "pyproject.toml"),
       `[project]\nname = "code-debugger"\nversion = "${options.mismatch ? "9.9.9" : "1.2.3"}"\n`,
     ),
-    fs.writeFile(path.join(root, "src/kg_debugger/__init__.py"), '__version__ = "1.2.3"\n'),
+    fs.writeFile(
+      path.join(root, "src/kg_debugger/__init__.py"),
+      '"""Release fixture."""\n\n__all__ = ["__version__"]\n\n__version__ = "1.2.3"\n',
+    ),
     fs.writeFile(path.join(root, "README.md"), "# release fixture\n"),
   ]);
   await fs.chmod(path.join(root, "scripts/package-release.sh"), 0o755);

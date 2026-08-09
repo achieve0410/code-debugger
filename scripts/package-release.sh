@@ -34,7 +34,7 @@ package = json.loads((root / "package.json").read_text(encoding="utf-8"))
 package_lock = json.loads((root / "package-lock.json").read_text(encoding="utf-8"))
 pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
 init_source = (root / "src/kg_debugger/__init__.py").read_text(encoding="utf-8")
-init_match = re.fullmatch(r'__version__ = "([^"]+)"\n?', init_source)
+init_match = re.search(r'^__version__ = "([^"]+)"$', init_source, re.MULTILINE)
 if init_match is None:
     raise SystemExit("invalid src/kg_debugger/__init__.py version declaration")
 
