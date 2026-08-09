@@ -153,3 +153,28 @@ test("verified extraction keeps archive directories removable", async (t) => {
   const mode = (await fs.stat(extracted)).mode & 0o700;
   assert.equal(mode, 0o700, "owner access is required for deterministic cleanup");
 });
+
+test("install smoke rejects a misnamed archive before bootstrap", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-debugger-misnamed-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const marker = path.join(root, "bootstrap-ran");
+  const fixture = await makeArchive(root, async (payload) => {
+    await fs.writeFile(
+      path.join(payload, "scripts/bootstrap.sh"),
+      `#!/bin/sh\ntouch ${JSON.stringify(marker)}\n`,
+    );
+    await fs.chmod(path.join(payload, "scripts/bootstrap.sh"), 0o755);
+  });
+  const archive = path.join(root, "release.tar.gz");
+  await fs.rename(fixture.archive, archive);
+  const checksum = await writeChecksum(archive);
+
+  await assert.rejects(
+    execFileAsync(installScript, [archive, checksum], { cwd: repoRoot }),
+    (error) => {
+      assert.match(String(error.stderr), /invalid release archive name/u);
+      return true;
+    },
+  );
+  await assert.rejects(fs.access(marker));
+});
