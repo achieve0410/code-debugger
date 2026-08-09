@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Bootstrap pinned local toolchain
+        run: ./scripts/bootstrap.sh
+
+      - name: Install Playwright system dependencies
+        run: |
+          . scripts/env.sh
+          npx playwright install-deps chromium
+
+      - name: Run full verification suite
+        run: ./scripts/check.sh
+
+      - name: Build source release archive
+        run: ./scripts/package-release.sh release-artifacts "${GITHUB_REF_NAME}"
+
+      - name: Preserve verified release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-release
+          path: release-artifacts/*
+          if-no-files-found: error
+          retention-days: 7
+
+  smoke:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            install_playwright_deps: "1"
+          - os: macos-15
+            install_playwright_deps: "0"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Download verified source archive
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v7.0.0
+        with:
+          name: source-release
+          path: release-artifacts
+
+      - name: Verify clean archive install
+        env:
+          INSTALL_PLAYWRIGHT_DEPS: ${{ matrix.install_playwright_deps }}
+        run: ./scripts/install-smoke.sh "release-artifacts/code-debugger-${GITHUB_REF_NAME}.tar.gz" "release-artifacts/code-debugger-${GITHUB_REF_NAME}.tar.gz.sha256"
+
+  publish:
+    needs: [verify, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download verified source archive
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v7.0.0
+        with:
+          name: source-release
+          path: release-artifacts
+
+      - name: Export SPDX dependency SBOM
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/dependency-graph/sbom" \
+            --method GET \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2026-03-10" \
+            --jq ".sbom" > release-artifacts/sbom.spdx.json
+
+      - name: Attest release artifacts
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: |
+            release-artifacts/*.tar.gz
+            release-artifacts/*.tar.gz.sha256
+            release-artifacts/sbom.spdx.json
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --draft
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" release-artifacts/* --repo "$GITHUB_REPOSITORY"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
