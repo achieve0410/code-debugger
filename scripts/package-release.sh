@@ -5,6 +5,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUTPUT_DIR=${1:-"$ROOT/release-artifacts"}
 RELEASE_TAG=${2:-}
+EXPECTED_COMMIT=${3:-}
 PYTHON=${PYTHON:-python3.13}
 
 if ! command -v "$PYTHON" >/dev/null 2>&1; then
@@ -60,8 +61,35 @@ if [ -n "$RELEASE_TAG" ] && [ "$RELEASE_TAG" != "v$VERSION" ]; then
   exit 1
 fi
 
+if [ -n "$RELEASE_TAG" ] && [ -z "$EXPECTED_COMMIT" ]; then
+  echo "release tag packaging requires an expected commit SHA." >&2
+  exit 1
+fi
+if [ -z "$EXPECTED_COMMIT" ]; then
+  EXPECTED_COMMIT=$(git rev-parse HEAD)
+fi
+if ! "$PYTHON" - "$EXPECTED_COMMIT" <<'PY'
+import re
+import sys
+
+if re.fullmatch(r"[0-9a-f]{40}", sys.argv[1]) is None:
+    raise SystemExit("expected release commit must be a full lowercase SHA")
+PY
+then
+  exit 1
+fi
+if ! RESOLVED_COMMIT=$(git rev-parse --verify "$EXPECTED_COMMIT^{commit}"); then
+  echo "expected release commit does not resolve to a commit." >&2
+  exit 1
+fi
+HEAD_COMMIT=$(git rev-parse HEAD)
+if [ "$HEAD_COMMIT" != "$RESOLVED_COMMIT" ]; then
+  echo "expected release commit does not match HEAD." >&2
+  exit 1
+fi
+
 FORBIDDEN=$(
-  git ls-files -z | "$PYTHON" -c '
+  git ls-tree -r -z --name-only "$RESOLVED_COMMIT" | "$PYTHON" -c '
 import sys
 
 for raw in sys.stdin.buffer.read().split(b"\0"):
@@ -98,7 +126,7 @@ git archive \
   --format=tar.gz \
   --prefix="code-debugger-v$VERSION/" \
   --output="$ARCHIVE" \
-  HEAD
+  "$RESOLVED_COMMIT"
 
 (
   cd "$OUTPUT_DIR"

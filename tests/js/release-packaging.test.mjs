@@ -68,8 +68,10 @@ test("release builder creates a versioned verified source archive", async (t) =>
   const root = await createReleaseRepository(t);
   const output = path.join(root, "release-artifacts");
   await fs.mkdir(output);
+  const { stdout: headOutput } = await git(root, ["rev-parse", "HEAD"]);
+  const head = headOutput.trim();
 
-  await execFileAsync("./scripts/package-release.sh", [output], { cwd: root });
+  await execFileAsync("./scripts/package-release.sh", [output, "v1.2.3", head], { cwd: root });
 
   const archiveName = "code-debugger-v1.2.3.tar.gz";
   const archive = path.join(output, archiveName);
@@ -84,6 +86,27 @@ test("release builder creates a versioned verified source archive", async (t) =>
   for (const forbidden of ["venv/", "node_modules/", "pem/", ".kg-debugger/", "web/dist/"]) {
     assert.equal(entries.some((entry) => entry.includes(`/${forbidden}`)), false);
   }
+});
+
+test("release builder rejects an expected commit behind HEAD", async (t) => {
+  const root = await createReleaseRepository(t);
+  const { stdout: previousOutput } = await git(root, ["rev-parse", "HEAD"]);
+  const previous = previousOutput.trim();
+  await fs.writeFile(path.join(root, "README.md"), "# second release fixture commit\n");
+  await git(root, ["add", "README.md"]);
+  await git(root, ["commit", "-qm", "advance release fixture"]);
+
+  const output = path.join(root, "release-artifacts");
+  await fs.mkdir(output);
+
+  await assert.rejects(
+    execFileAsync("./scripts/package-release.sh", [output, "v1.2.3", previous], { cwd: root }),
+    (error) => {
+      assert.match(String(error.stderr), /expected release commit does not match HEAD/u);
+      return true;
+    },
+  );
+  assert.deepEqual(await fs.readdir(output), []);
 });
 
 test("release builder rejects inconsistent public versions", async (t) => {

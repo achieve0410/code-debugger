@@ -20,61 +20,19 @@ if [ ! -f "$ARCHIVE" ] || [ ! -f "$CHECKSUM" ]; then
   exit 1
 fi
 
-ARCHIVE=$(
-  "$PYTHON" - "$ARCHIVE" <<'PY'
-from pathlib import Path
-import sys
-
-print(Path(sys.argv[1]).resolve(strict=True))
-PY
-)
-CHECKSUM=$(
-  "$PYTHON" - "$CHECKSUM" <<'PY'
-from pathlib import Path
-import sys
-
-print(Path(sys.argv[1]).resolve(strict=True))
-PY
-)
-
-"$PYTHON" - "$ARCHIVE" "$CHECKSUM" <<'PY'
-from __future__ import annotations
-
-import hashlib
-import re
-import sys
-from pathlib import Path
-
-archive = Path(sys.argv[1])
-checksum = Path(sys.argv[2])
-line = checksum.read_text(encoding="ascii").strip()
-match = re.fullmatch(r"([0-9a-f]{64})  ([^\n]+)", line)
-if match is None or match.group(2) != archive.name:
-    raise SystemExit("invalid release checksum file")
-
-actual = hashlib.sha256(archive.read_bytes()).hexdigest()
-if actual != match.group(1):
-    raise SystemExit("release checksum verification failed")
-PY
-
-ARCHIVE_NAME=$(basename "$ARCHIVE")
-case "$ARCHIVE_NAME" in
-  code-debugger-v*.tar.gz) ;;
-  *)
-    echo "invalid release archive name: $ARCHIVE_NAME" >&2
-    exit 1
-    ;;
-esac
-INSTALL_ROOT_NAME=${ARCHIVE_NAME%.tar.gz}
-
 TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/code-debugger-install.XXXXXX")
 cleanup() {
   rm -rf "$TEMP_ROOT"
 }
 trap cleanup EXIT HUP INT TERM
 
-tar -xzf "$ARCHIVE" -C "$TEMP_ROOT"
-INSTALL_ROOT="$TEMP_ROOT/$INSTALL_ROOT_NAME"
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+INSTALL_ROOT=$(
+  "$PYTHON" "$ROOT/scripts/verify-release-archive.py" \
+    "$ARCHIVE" \
+    "$CHECKSUM" \
+    "$TEMP_ROOT"
+)
 if [ ! -x "$INSTALL_ROOT/scripts/bootstrap.sh" ] || [ ! -x "$INSTALL_ROOT/scripts/run.sh" ]; then
   echo "release archive is missing executable bootstrap or run scripts." >&2
   exit 1
