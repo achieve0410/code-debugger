@@ -82,15 +82,31 @@ cd code-debugger
 ./scripts/run.sh --project fixtures/react-django
 ```
 
-Tagged releases produced by the current release workflow attach a versioned
-source archive and SHA-256 checksum. A release is archive-installable only when
-both assets are present:
+Approved releases produced from protected `main` attach a versioned source
+archive, SHA-256 checksum, exact-archive SPDX SBOM, and GitHub attestations.
+A release is archive-installable only when those assets are present and the
+archive attestation verifies. GitHub CLI is required for this verification:
 
 ```sh
 VERSION=X.Y.Z
-curl --fail --location --proto '=https' --tlsv1.2 \
-  --remote-name "https://github.com/achieve0410/code-debugger/releases/download/v${VERSION}/code-debugger-v${VERSION}.tar.gz" \
-  --remote-name "https://github.com/achieve0410/code-debugger/releases/download/v${VERSION}/code-debugger-v${VERSION}.tar.gz.sha256"
+REPOSITORY=achieve0410/code-debugger
+TAG="v${VERSION}"
+SOURCE_SHA=$(gh api "repos/${REPOSITORY}/git/ref/tags/${TAG}" --jq ".object.sha")
+gh release download "${TAG}" \
+  --repo "${REPOSITORY}" \
+  --pattern "code-debugger-${TAG}.tar.gz" \
+  --pattern "code-debugger-${TAG}.tar.gz.sha256"
+gh attestation verify "code-debugger-${TAG}.tar.gz" \
+  --repo "${REPOSITORY}" \
+  --signer-workflow "${REPOSITORY}/.github/workflows/release.yml" \
+  --source-ref refs/heads/main \
+  --source-digest "${SOURCE_SHA}"
+gh attestation verify "code-debugger-${TAG}.tar.gz" \
+  --repo "${REPOSITORY}" \
+  --signer-workflow "${REPOSITORY}/.github/workflows/release.yml" \
+  --source-ref refs/heads/main \
+  --source-digest "${SOURCE_SHA}" \
+  --predicate-type https://spdx.dev/Document
 shasum -a 256 -c "code-debugger-v${VERSION}.tar.gz.sha256"
 tar -xzf "code-debugger-v${VERSION}.tar.gz"
 cd "code-debugger-v${VERSION}"
@@ -99,8 +115,9 @@ cd "code-debugger-v${VERSION}"
 ```
 
 The archive preserves the repository-relative runtime contract and still
-performs the pinned bootstrap. Do not replace checksum verification with a
-remote `curl | sh` installation path.
+performs the pinned bootstrap. The checksum detects corruption or a mismatched
+asset pair; publisher identity comes from the attestations. Do not replace
+either verification with a remote `curl | sh` installation path.
 
 Open `https://localhost:8443`. The server binds only `127.0.0.1`; trust the
 locally generated development certificate normally—do not disable certificate

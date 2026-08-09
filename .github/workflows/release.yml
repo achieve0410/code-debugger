@@ -1,26 +1,76 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the v prefix
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+env:
+  RELEASE_TAG: v${{ inputs.version }}
+
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
+  package:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Seal exact release commit
+        run: ./scripts/package-release.sh release-artifacts "${RELEASE_TAG}" "${GITHUB_SHA}"
+
+      - name: Preserve sealed source release
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-release
+          path: release-artifacts/*
+          if-no-files-found: error
+          retention-days: 7
+
   verify:
+    needs: package
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
+
+      - name: Download sealed source release
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v7.0.0
+        with:
+          name: source-release
+          path: release-artifacts
+
+      - name: Verify sealed archive
+        run: |
+          verification_root=$(mktemp -d "${RUNNER_TEMP}/release-verify.XXXXXX")
+          trap 'rm -rf "$verification_root"' EXIT
+          python3.13 scripts/verify-release-archive.py \
+            "release-artifacts/code-debugger-${RELEASE_TAG}.tar.gz" \
+            "release-artifacts/code-debugger-${RELEASE_TAG}.tar.gz.sha256" \
+            "$verification_root" >/dev/null
 
       - name: Bootstrap pinned local toolchain
         run: ./scripts/bootstrap.sh
@@ -35,19 +85,8 @@ jobs:
       - name: Run full verification suite
         run: ./scripts/check.sh
 
-      - name: Build source release archive
-        run: ./scripts/package-release.sh release-artifacts "${GITHUB_REF_NAME}"
-
-      - name: Preserve verified release artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: source-release
-          path: release-artifacts/*
-          if-no-files-found: error
-          retention-days: 7
-
   smoke:
-    needs: verify
+    needs: package
     strategy:
       fail-fast: false
       matrix:
@@ -60,11 +99,14 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
 
-      - name: Download verified source archive
+      - name: Download sealed source release
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v7.0.0
         with:
           name: source-release
@@ -73,10 +115,82 @@ jobs:
       - name: Verify clean archive install
         env:
           INSTALL_PLAYWRIGHT_DEPS: ${{ matrix.install_playwright_deps }}
-        run: ./scripts/install-smoke.sh "release-artifacts/code-debugger-${GITHUB_REF_NAME}.tar.gz" "release-artifacts/code-debugger-${GITHUB_REF_NAME}.tar.gz.sha256"
+        run: ./scripts/install-smoke.sh "release-artifacts/code-debugger-${RELEASE_TAG}.tar.gz" "release-artifacts/code-debugger-${RELEASE_TAG}.tar.gz.sha256"
+
+  sbom:
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      SYFT_VERSION: "1.50.0"
+      SYFT_COMMIT: "16223e6dd7893fe578787658ceb876257483d404"
+      SYFT_SHA256: "bf7b29ff57f06da30918266a0e1c2885a8f99784798d1bdb1628886aa015d788"
+      SYFT_CHECK_FOR_APP_UPDATE: "false"
+      SYFT_JAVASCRIPT_SEARCH_REMOTE_LICENSES: "false"
+      SYFT_PYTHON_SEARCH_REMOTE_LICENSES: "false"
+      SYFT_JAVASCRIPT_INCLUDE_DEV_DEPENDENCIES: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Download sealed source release
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v7.0.0
+        with:
+          name: source-release
+          path: release-artifacts
+
+      - name: Generate exact archive SPDX
+        run: |
+          extraction_root=$(mktemp -d "${RUNNER_TEMP}/release-sbom.XXXXXX")
+          trap 'rm -rf "$extraction_root"' EXIT
+          source_root=$(
+            python3.13 scripts/verify-release-archive.py \
+              "release-artifacts/code-debugger-${RELEASE_TAG}.tar.gz" \
+              "release-artifacts/code-debugger-${RELEASE_TAG}.tar.gz.sha256" \
+              "$extraction_root"
+          )
+
+          syft_root="${RUNNER_TEMP}/syft"
+          syft_archive="${RUNNER_TEMP}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          mkdir -p "$syft_root"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "$syft_archive" \
+            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          printf '%s  %s\n' "$SYFT_SHA256" "$syft_archive" | sha256sum -c -
+          tar -xzf "$syft_archive" -C "$syft_root"
+
+          raw_sbom="${RUNNER_TEMP}/raw.spdx.json"
+          "$syft_root/syft" scan "dir:$source_root" \
+            --source-name code-debugger \
+            --source-version "$GITHUB_SHA" \
+            --enrich none \
+            -q \
+            -o spdx-json@2.3 >"$raw_sbom"
+          python3.13 scripts/finalize-release-sbom.py \
+            "$raw_sbom" \
+            release-artifacts/sbom.spdx.json \
+            code-debugger \
+            "$GITHUB_SHA"
+          (
+            cd release-artifacts
+            sha256sum sbom.spdx.json >sbom.spdx.json.sha256
+          )
+
+      - name: Preserve exact archive SPDX
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-sbom
+          path: release-artifacts/sbom.spdx.json*
+          if-no-files-found: error
+          retention-days: 7
 
   publish:
-    needs: [verify, smoke]
+    needs: [package, verify, smoke, sbom]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -84,41 +198,63 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - name: Download verified source archive
+      - name: Download sealed source release
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v7.0.0
         with:
           name: source-release
           path: release-artifacts
 
-      - name: Export SPDX dependency SBOM
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Download exact archive SPDX
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v7.0.0
+        with:
+          name: release-sbom
+          path: release-artifacts
+
+      - name: Reverify release evidence
         run: |
-          gh api "repos/${GITHUB_REPOSITORY}/dependency-graph/sbom" \
-            --method GET \
-            --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: 2026-03-10" \
-            --jq ".sbom" > release-artifacts/sbom.spdx.json
+          cd release-artifacts
+          sha256sum -c "code-debugger-${RELEASE_TAG}.tar.gz.sha256"
+          sha256sum -c sbom.spdx.json.sha256
 
       - name: Attest release artifacts
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: |
-            release-artifacts/*.tar.gz
-            release-artifacts/*.tar.gz.sha256
+            release-artifacts/code-debugger-${{ env.RELEASE_TAG }}.tar.gz
+            release-artifacts/code-debugger-${{ env.RELEASE_TAG }}.tar.gz.sha256
             release-artifacts/sbom.spdx.json
+            release-artifacts/sbom.spdx.json.sha256
+
+      - name: Attest release SBOM
+        uses: actions/attest-sbom@36590ecaf038d6630c74f2da259095627d52ac11 # v4
+        with:
+          subject-path: release-artifacts/code-debugger-${{ env.RELEASE_TAG }}.tar.gz
+          sbom-path: release-artifacts/sbom.spdx.json
+
+      - name: Create exact release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "release tag already exists: ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+            --method POST \
+            -f ref="refs/tags/${RELEASE_TAG}" \
+            -f sha="${GITHUB_SHA}" >/dev/null
+          actual_sha=$(
+            gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" \
+              --jq ".object.sha"
+          )
+          test "$actual_sha" = "$GITHUB_SHA"
 
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --draft
+        run: gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --target "$GITHUB_SHA" --generate-notes --draft
 
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" release-artifacts/* --repo "$GITHUB_REPOSITORY"
-
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+        run: gh release upload "$RELEASE_TAG" release-artifacts/* --repo "$GITHUB_REPOSITORY"
