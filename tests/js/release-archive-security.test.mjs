@@ -10,6 +10,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const installScript = path.join(repoRoot, "scripts/install-smoke.sh");
+const verifyScript = path.join(repoRoot, "scripts/verify-release-archive.py");
 
 async function writeChecksum(archive) {
   const digest = crypto.createHash("sha256").update(await fs.readFile(archive)).digest("hex");
@@ -51,7 +52,7 @@ async function makeUnsafeMemberArchive(root, kind) {
     "        member.type = tarfile.LNKTYPE",
     "        member.linkname = '../../outside-bootstrap.sh'",
     "        output.addfile(member)",
-    "    else:",
+    "    elif kind == 'device':",
     "        member.type = tarfile.CHRTYPE",
     "        member.devmajor = 1",
     "        member.devminor = 3",
@@ -138,3 +139,17 @@ for (const kind of ["traversal", "hardlink", "device"]) {
     }));
   });
 }
+
+test("verified extraction keeps archive directories removable", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-debugger-mode-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const { archive, checksum } = await makeUnsafeMemberArchive(root, "directory");
+  const destination = path.join(root, "extracted");
+  await fs.mkdir(destination);
+
+  await execFileAsync("python3.13", [verifyScript, archive, checksum, destination]);
+
+  const extracted = path.join(destination, "code-debugger-v1.2.3");
+  const mode = (await fs.stat(extracted)).mode & 0o700;
+  assert.equal(mode, 0o700, "owner access is required for deterministic cleanup");
+});
