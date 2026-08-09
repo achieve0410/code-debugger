@@ -82,7 +82,9 @@ fi
 
 cd "$INSTALL_ROOT"
 ./scripts/bootstrap.sh
-. ./scripts/env.sh
+KG_DEBUGGER_ROOT=$INSTALL_ROOT
+export KG_DEBUGGER_ROOT
+. "$INSTALL_ROOT/scripts/env.sh"
 
 case "${INSTALL_PLAYWRIGHT_DEPS:-0}" in
   0) ;;

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
@@ -12,7 +13,7 @@ const repoRoot = path.resolve(import.meta.dirname, "../..");
 const analyzer = path.join(repoRoot, "analyzers/index.mjs");
 
 async function analyzeFiles(files) {
-  const root = await fs.mkdtemp(path.join(repoRoot, ".tmp-static-analyzer-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-debugger-static-analyzer-"));
   try {
     await Promise.all(Object.entries(files).map(async ([relative, source]) => {
       const file = path.join(root, relative);

@@ -25,6 +25,8 @@ jobs:
         run: ./scripts/bootstrap.sh
 
       - name: Install Playwright system dependencies
+        env:
+          KG_DEBUGGER_ROOT: ${{ github.workspace }}
         run: |
           . scripts/env.sh
           npx playwright install-deps chromium

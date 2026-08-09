@@ -170,7 +170,10 @@ class DjangoAndFrontendIntegrationTests(unittest.TestCase):
     def test_real_react_and_vue_django_fixtures_are_analyzed(self) -> None:
         workspace = Path(__file__).resolve().parents[2]
         for fixture, framework in (("fixtures/react-django", "react"), ("fixtures/vue-django", "vue")):
-            with self.subTest(fixture=fixture), tempfile.TemporaryDirectory(dir=workspace) as directory:
+            with self.subTest(fixture=fixture), tempfile.TemporaryDirectory(
+                prefix=".tmp-core-fixture-",
+                dir=workspace,
+            ) as directory:
                 store_path = Path(directory).relative_to(workspace) / "graph.sqlite3"
                 config = DebuggerConfig.from_dict(
                     workspace,
@@ -396,7 +399,7 @@ class ServerAndCliIntegrationTests(unittest.TestCase):
 
     def test_https_health_uses_project_certificate_with_verification(self) -> None:
         workspace = Path(__file__).resolve().parents[2]
-        with tempfile.TemporaryDirectory(dir=workspace) as directory:
+        with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config = self._server_config(root)
             (root / "pem").mkdir()

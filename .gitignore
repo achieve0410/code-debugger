@@ -8,6 +8,7 @@
 /test-results/
 /coverage/
 /release-artifacts/
+/.tmp-*/
 
 # Local runtime data and OMX working artifacts
 /.kg-debugger/

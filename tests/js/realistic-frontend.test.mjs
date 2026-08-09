@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
@@ -103,7 +104,7 @@ test("realistic HTTP calls retain methods and minimized parameterized URLs", asy
 });
 
 test("fetch with a non-literal method stays unresolved instead of claiming GET", async () => {
-  const root = await fs.mkdtemp(path.join(repoRoot, ".tmp-dynamic-method-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-debugger-dynamic-method-"));
   try {
     await fs.mkdir(path.join(root, "src"), { recursive: true });
     await fs.writeFile(
@@ -135,7 +136,7 @@ test("fetch with a non-literal method stays unresolved instead of claiming GET",
 });
 
 test("ambiguous component names do not create render links", async () => {
-  const root = await fs.mkdtemp(path.join(repoRoot, ".tmp-ambiguous-components-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-debugger-ambiguous-components-"));
   try {
     await fs.mkdir(path.join(root, "src"), { recursive: true });
     await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ dependencies: { react: "19.2.8" } }));
