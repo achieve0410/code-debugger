@@ -3,6 +3,17 @@
 Thank you for helping improve `code-debugger`. Contributions should preserve its
 local-first, fail-closed security and graph-contract boundaries.
 
+## Start here
+
+- [ROADMAP.md](ROADMAP.md) describes current direction and explicit non-goals.
+- [MAINTAINERS.md](MAINTAINERS.md) documents ownership and response
+  expectations.
+- [docs/analyzer-conformance.md](docs/analyzer-conformance.md) explains the
+  synthetic fixture workflow and support matrix.
+- [docs/graph-contract.md](docs/graph-contract.md) and
+  [docs/security-model.md](docs/security-model.md) define the trusted product
+  boundary.
+
 ## Before opening a change
 
 - Search existing issues and pull requests first.
@@ -92,6 +103,27 @@ npm run test:e2e
 
 Do not suppress warnings, weaken assertions, or bypass certificate validation to
 make a check pass.
+
+## Agent-assisted contributions
+
+Agent-assisted changes follow the same review, security, authorship, and
+verification requirements as any other contribution.
+
+- The submitter owns and reviews the complete result.
+- Never provide an agent with credentials, private source, non-public project
+  data, analyzed-project output, absolute roots, or real request/runtime data.
+- Treat generated code and analysis as untrusted until checked against the
+  current source, contracts, and tests.
+- Keep automated changes focused and include a failing-first regression proof
+  for behavior changes.
+- Do not let an agent publish releases, change repository permissions, merge
+  pull requests, or disclose security reports without explicit maintainer
+  authorization.
+- Mention material agent assistance in the pull-request summary when it helps
+  reviewers understand how the change was produced or verified.
+
+Using an agent does not replace human review, required checks, or responsibility
+for licensing and provenance.
 
 ## Pull requests
 
