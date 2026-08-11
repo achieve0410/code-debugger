@@ -7,6 +7,12 @@ from .models import Item, Order
 
 
 @require_GET
+def acl_list(request):
+    orders = list(Order.objects.all())
+    return JsonResponse({"count": len(orders)})
+
+
+@require_GET
 def item_list(request):
     items = list(Item.objects.values("id", "name"))
     return JsonResponse(items, safe=False)

@@ -3,3 +3,9 @@ contact_links:
   - name: Security vulnerability
     url: https://github.com/achieve0410/code-debugger/security/advisories/new
     about: Report security vulnerabilities privately. Do not disclose them in an issue.
+  - name: Contributor and design discussion
+    url: https://github.com/achieve0410/code-debugger/discussions
+    about: Ask contributor questions or discuss an idea before opening a large proposal.
+  - name: Roadmap and current direction
+    url: https://github.com/achieve0410/code-debugger/blob/main/ROADMAP.md
+    about: Review maintained priorities, contribution routes, and explicit non-goals.

@@ -26,6 +26,7 @@ export function handleJsCall(
   urlSymbols = new Map(),
   payloadHints = { namedShapes: new Map(), parameterShapes: new Map() },
   fn,
+  options = {},
 ) {
   const callee = expressionName(node.expression);
   const firstArg = node.arguments[0];
@@ -39,7 +40,12 @@ export function handleJsCall(
       addDynamicMethodTarget(node, entry, builder, framework, ownerKey, fn);
       return;
     }
-    const url = resolveBoundedUrl(config.get("url"), entry, urlSymbols);
+    const url = resolveBoundedUrl(
+      config.get("url"),
+      entry,
+      urlSymbols,
+      options.basePaths ?? [],
+    );
     if (url) {
       const payload = requestPayloadFromConfig(config, entry, fn, payloadHints, node);
       addHttpCall(
@@ -457,9 +463,13 @@ export function resolveHttpUrl(node, symbols) {
   }
   return undefined;
 }
-function resolveBoundedUrl(node, entry, symbols) {
+function resolveBoundedUrl(node, entry, symbols, basePaths = []) {
   const literal = node && !ts.isTemplateExpression(node) ? resolveHttpUrl(node, symbols) : undefined;
-  if (literal !== undefined) return literalTarget(literal) ?? { normalizedPath: "/{u0}", resolution: "unbounded" };
+  if (literal !== undefined) {
+    return literalTarget(literal)
+      ?? configuredBaseTarget(literal, basePaths)
+      ?? { normalizedPath: "/{u0}", resolution: "unbounded" };
+  }
   if (!node || !ts.isTemplateExpression(node)) return undefined;
   const segments = [node.head.text];
   const placeholders = [];
@@ -510,6 +520,36 @@ function literalTarget(value) {
   } catch {
     return undefined;
   }
+}
+
+function configuredBaseTarget(value, basePaths) {
+  if (
+    typeof value !== "string"
+    || !value
+    || value.startsWith("/")
+    || value.includes("//")
+    || value.includes("://")
+    || /[{}:?#\s\\]/u.test(value)
+    || value.includes("%")
+    || value.split("/").some((segment) => segment === "." || segment === "..")
+    || basePaths.length !== 1
+  ) {
+    return undefined;
+  }
+  const base = basePaths[0];
+  if (
+    typeof base !== "string"
+    || !base.startsWith("/")
+    || base.startsWith("//")
+    || base.slice(1).includes("//")
+    || /[{}:?#\s\\]/u.test(base)
+    || base.includes("%")
+    || base.split("/").some((segment) => segment === "." || segment === "..")
+  ) {
+    return undefined;
+  }
+  const normalizedBase = base === "/" ? "" : base.replace(/\/+$/u, "");
+  return literalTarget(`${normalizedBase}/${value}`);
 }
 
 function isCanonicalLocalOriginPath(value) {

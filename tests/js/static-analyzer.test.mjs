@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
@@ -12,7 +13,7 @@ const repoRoot = path.resolve(import.meta.dirname, "../..");
 const analyzer = path.join(repoRoot, "analyzers/index.mjs");
 
 async function analyzeFiles(files) {
-  const root = await fs.mkdtemp(path.join(repoRoot, ".tmp-static-analyzer-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-debugger-static-analyzer-"));
   try {
     await Promise.all(Object.entries(files).map(async ([relative, source]) => {
       const file = path.join(root, relative);
@@ -333,6 +334,53 @@ test("Vue event modifiers are emitted as canonical tokens", async () => {
   });
   const event = fragment.nodes.find((node) => node.kind === "ui_event");
   assert.deepEqual(event.metadata.modifiers, ["prevent", "stop"]);
+});
+test("Vue update events are emitted as canonical tokens", async () => {
+  const fragment = await analyzeFiles({
+    "Page.vue": `<template><Dialog @update:modelValue="save" /></template><script setup>function save() {}</script>`,
+  });
+  const event = fragment.nodes.find((node) => node.kind === "ui_event");
+  assert.equal(event.metadata.eventKind, "update.modelvalue");
+});
+test("Vue components do not emit illegal render edges to page nodes", async () => {
+  const fragment = await analyzeFiles({
+    "App.vue": "<template><MemberPage /></template>",
+    "MemberPage.vue": "<template><main>Members</main></template>",
+  });
+  const app = fragment.nodes.find((node) => node.label === "App");
+  const page = fragment.nodes.find((node) => node.label === "MemberPage");
+  assert.equal(page.kind, "page");
+  assert.equal(
+    fragment.edges.some(
+      (edge) => edge.source === app.key && edge.kind === "renders" && edge.target === page.key,
+    ),
+    false,
+  );
+});
+test("Nuxt catch-all page routes remain unresolved", async () => {
+  const fragment = await analyzeFiles({
+    "nuxt.config.ts": "export default defineNuxtConfig({})",
+    "pages/[...slug].vue": "<template><main>Catch all</main></template>",
+  });
+  assert.equal(
+    fragment.nodes.some(
+      (node) => node.kind === "frontend_route" && node.metadata.declaredPath === "/:slug*",
+    ),
+    false,
+  );
+  assert.ok(
+    fragment.nodes.some((node) => node.kind === "unresolved_target"),
+  );
+});
+test("hidden agents support files are not analyzed as application source", async () => {
+  const fragment = await analyzeFiles({
+    ".agents/skills/HiddenPage.jsx": "export function HiddenPage() { return <main />; }",
+    "src/App.jsx": "export function App() { return <main />; }",
+  });
+  assert.equal(
+    fragment.nodes.some((node) => node.source.path.startsWith(".agents/")),
+    false,
+  );
 });
 test("Vue child routes are absolute and unsupported catch-alls remain unresolved", async () => {
   const fragment = await analyzeFiles({

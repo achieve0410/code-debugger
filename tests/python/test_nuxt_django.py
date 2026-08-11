@@ -93,6 +93,96 @@ class NuxtDjangoCrossLinkTests(unittest.TestCase):
             self.assertTrue(any(target.kind == "unresolved_target" for target in targets))
             self.assertFalse(any(target.kind == "django_url_pattern" for target in targets))
 
+    def test_network_acl_route_reaches_django_view_query_and_model(self) -> None:
+        completed = subprocess.run(
+            [
+                str(NODE_BIN),
+                str(ANALYZER),
+                "--frontend-only",
+                "--repository",
+                REPOSITORY,
+                "--base-path",
+                "/app/v1",
+                str(FIXTURE_ROOT),
+            ],
+            check=True,
+            text=True,
+            capture_output=True,
+            timeout=60,
+        )
+        backend = backend_fragment()
+        frontend = json.loads(completed.stdout)
+        frontend["repositorySetId"] = backend.snapshot.repositorySetId
+        frontend["repositories"] = MANIFEST
+        snapshot = merge_canonical_fragments(
+            backend,
+            canonicalize_fragment(frontend),
+            active_manifest=MANIFEST,
+        )
+        nodes = {node.id: node for node in snapshot.nodes}
+        route = next(
+            item for item in snapshot.routes
+            if item["framework"] == "nuxt" and item["path"] == "/network/acl"
+        )
+        wrapper = next(
+            node for node in nodes.values()
+            if node.kind == "component"
+            and node.source.path == "frontend/pages/network/acl.vue"
+        )
+        page = next(
+            node for node in nodes.values()
+            if node.kind == "component"
+            and node.source.path == "frontend/src/apps/network/acl/pages/AclPage.vue"
+        )
+        event = next(
+            node for node in nodes.values()
+            if node.kind == "ui_event"
+            and node.source.path == "frontend/src/apps/network/acl/pages/AclPage.vue"
+        )
+        handler = next(
+            node for node in nodes.values()
+            if node.kind == "function"
+            and node.label == "loadAcl"
+            and node.source.path == "frontend/src/apps/network/acl/pages/AclPage.vue"
+        )
+        request = next(
+            node for node in nodes.values()
+            if node.kind == "http_call"
+            and node.metadata.get("endpointId") == "GET /app/v1/acl_policy/"
+        )
+        url = next(
+            node for node in nodes.values()
+            if node.kind == "django_url_pattern"
+            and node.metadata.get("endpointId") == "GET /app/v1/acl_policy/"
+        )
+        view = next(
+            node for node in nodes.values()
+            if node.kind == "django_view" and node.label == "acl_list"
+        )
+        query = next(
+            node for node in nodes.values()
+            if node.kind == "query_boundary"
+            and node.metadata.get("modelQualifiedName", "").endswith(".Order")
+            and node.metadata.get("operation") == "all"
+        )
+        model = next(
+            node for node in nodes.values()
+            if node.kind == "model" and node.label == "Order"
+        )
+        edges = {(edge.source, edge.kind, edge.target) for edge in snapshot.edges}
+        for edge in [
+            (route["nodeId"], "renders", wrapper.id),
+            (wrapper.id, "renders", page.id),
+            (page.id, "contains", event.id),
+            (event.id, "handles", handler.id),
+            (handler.id, "calls", request.id),
+            (request.id, "resolves_to", url.id),
+            (url.id, "resolves_to", view.id),
+            (view.id, "accesses", query.id),
+            (query.id, "accesses", model.id),
+        ]:
+            self.assertIn(edge, edges)
+
 
 if __name__ == "__main__":
     unittest.main()

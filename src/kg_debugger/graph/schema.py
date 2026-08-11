@@ -16,6 +16,7 @@ from .contracts import (
     ROUTE_ID_RE,
     SAFE_TOKEN_RE,
     format_external_authority,
+    is_secret_value,
     reject_secret_material,
     validate_diagnostic,
     validate_evidence_reason,
@@ -53,7 +54,14 @@ def _exact(data: Any, keys: set[str], name: str) -> dict[str, Any]:
         _fail(f"invalid {name}")
     return data
 
-def _safe_string(value: Any, name: str, minimum: int, maximum: int) -> str:
+def _safe_string(
+    value: Any,
+    name: str,
+    minimum: int,
+    maximum: int,
+    *,
+    allow_generic_token: bool = False,
+) -> str:
     if (
         not isinstance(value, str)
         or not minimum <= len(value) <= maximum
@@ -61,7 +69,11 @@ def _safe_string(value: Any, name: str, minimum: int, maximum: int) -> str:
         or any(ord(char) < 32 or ord(char) == 127 for char in value)
     ):
         _fail(f"invalid {name}")
-    reject_secret_material(value)
+    if allow_generic_token:
+        if is_secret_value(value, include_generic=False):
+            _fail("secret-like value")
+    else:
+        reject_secret_material(value)
     return value
 
 def _finite(value: Any) -> float:
@@ -116,7 +128,13 @@ class SourceLocation:
         if self.endLine is not None and self.line is not None and self.endLine < self.line:
             _fail("invalid source endLine")
         if self.symbol is not None:
-            _safe_string(self.symbol, "source symbol", 1, 512)
+            _safe_string(
+                self.symbol,
+                "source symbol",
+                1,
+                512,
+                allow_generic_token=True,
+            )
             if not re.fullmatch(
                 r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*",
                 self.symbol,
@@ -219,8 +237,23 @@ class Node:
             or self.layer not in LEGAL_LAYERS_BY_KIND[self.kind]
         ):
             _fail("invalid node kind or layer")
-        _safe_string(self.identityKey, "identityKey", 1, 512)
-        _safe_string(self.label, "label", 1, 256)
+        _safe_string(
+            self.identityKey,
+            "identityKey",
+            1,
+            512,
+            allow_generic_token=True,
+        )
+        _safe_string(
+            self.label,
+            "label",
+            1,
+            256,
+            allow_generic_token=(
+                self.source.symbol is not None
+                and self.label == self.source.symbol.rsplit(".", 1)[-1]
+            ),
+        )
         if (
             self.id
             != node_identity(

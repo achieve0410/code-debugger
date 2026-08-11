@@ -8,6 +8,24 @@ body:
     attributes:
       value: |
         Explain the user problem before proposing an implementation. Requests that add telemetry, external traversal, production access, broad data collection, or fail-open graph claims are outside the project boundary.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - React analyzer
+        - Vue analyzer
+        - Nuxt analyzer
+        - Django analyzer
+        - Graph contract or merge
+        - Runtime or API
+        - Storage or migration
+        - Web interface
+        - Setup, build, release, or CI
+        - Documentation, governance, or onboarding
+        - Other
+    validations:
+      required: true
   - type: textarea
     id: problem
     attributes:

@@ -59,6 +59,7 @@ export function walkFiles(root, skipped = []) {
   const ignored = new Set([
     "node_modules",
     ".git",
+    ".agents",
     ".venv",
     "venv",
     "__pycache__",

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
@@ -45,7 +46,7 @@ function stableSummary(fragment) {
 }
 
 test("an oversized or broken SFC does not prevent healthy files from being analyzed", async () => {
-  const root = await fs.mkdtemp(path.join(repoRoot, ".tmp-robustness-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-debugger-robustness-"));
   try {
     await fs.mkdir(path.join(root, "src"), { recursive: true });
     await fs.writeFile(
@@ -173,7 +174,7 @@ test("release metadata stays consistent across package, Python, README, and secu
 });
 
 test("window.location branches stay unresolved without keyword-based heuristics", async () => {
-  const root = await fs.mkdtemp(path.join(repoRoot, ".tmp-branch-signal-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-debugger-branch-signal-"));
   try {
     await fs.mkdir(path.join(root, "src"), { recursive: true });
     await fs.writeFile(

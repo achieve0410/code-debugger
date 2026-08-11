@@ -2,7 +2,9 @@
 
 set -eu
 
-KG_DEBUGGER_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ -z "${KG_DEBUGGER_ROOT:-}" ]; then
+  KG_DEBUGGER_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+fi
 export KG_DEBUGGER_ROOT
 KG_DEBUGGER_NODE_HOME="$KG_DEBUGGER_ROOT/venv/node24.14.1"
 export KG_DEBUGGER_NODE="$KG_DEBUGGER_NODE_HOME/bin/node"

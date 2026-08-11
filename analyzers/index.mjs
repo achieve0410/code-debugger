@@ -10,14 +10,32 @@ import { collectVue } from "./lib/vue.mjs";
 import { collectNuxt } from "./lib/nuxt.mjs";
 
 function usage() {
-  console.error("Usage: node analyzers/index.mjs --repository <namespace> [--frontend-only] <project-root>");
+  console.error("Usage: node analyzers/index.mjs --repository <namespace> [--frontend-only] [--base-path <path>]... <project-root>");
 }
 
 function main() {
   const args = process.argv.slice(2);
-  const repositoryIndex = args.indexOf("--repository");
-  const repository = repositoryIndex >= 0 ? args[repositoryIndex + 1] : undefined;
-  const rootArgs = args.filter((value, index) => value !== "--repository" && value !== "--frontend-only" && index !== repositoryIndex + 1);
+  let repository;
+  const basePaths = [];
+  const rootArgs = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const value = args[index];
+    if (value === "--frontend-only") continue;
+    if (value === "--repository" || value === "--base-path") {
+      const optionValue = args[index + 1];
+      if (!optionValue || optionValue.startsWith("--")) {
+        usage(); process.exit(2);
+      }
+      if (value === "--repository") repository = optionValue;
+      else basePaths.push(optionValue);
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("--")) {
+      usage(); process.exit(2);
+    }
+    rootArgs.push(value);
+  }
   const rootArg = rootArgs.length === 1 ? rootArgs[0] : undefined;
   if (!repository || !/^[a-z][a-z0-9._-]{0,63}$/u.test(repository) || !rootArg) {
     usage(); process.exit(2);
@@ -33,7 +51,11 @@ function main() {
   const frameworks = detectFrontendFrameworks(root, files);
   if (frameworks.react) collectReact(files, builder);
   if (frameworks.nuxt) {
-    collectVue(files, builder, { framework: "nuxt", scriptSetupTopLevel: true });
+    collectVue(files, builder, {
+      framework: "nuxt",
+      scriptSetupTopLevel: true,
+      basePaths,
+    });
     collectNuxt(files, builder);
   } else if (frameworks.vue) collectVue(files, builder);
   process.stdout.write(`${JSON.stringify(builder.fragment(), null, 2)}\n`);

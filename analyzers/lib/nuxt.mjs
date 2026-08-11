@@ -181,7 +181,7 @@ function isStrictNuxtRoutePath(routePath) {
       !segment || (
         segment !== "."
         && segment !== ".."
-        && (!segment.startsWith(":") || /^:[A-Za-z_][A-Za-z0-9_]*\*?$/u.test(segment))
+        && (!segment.startsWith(":") || /^:[A-Za-z_][A-Za-z0-9_]*$/u.test(segment))
       )
     ));
 }

@@ -79,8 +79,17 @@ class Orchestrator:
         diagnostics: list[dict[str, Any]] = []
         for root, repository in repository_by_root.items():
             try:
+                command = [
+                    str(node),
+                    str(analyzer),
+                    "--repository",
+                    repository,
+                ]
+                for base_path in self.config.endpoint.base_paths:
+                    command.extend(["--base-path", base_path])
+                command.append(str(root))
                 completed = subprocess.run(
-                    [str(node), str(analyzer), "--repository", repository, str(root)],
+                    command,
                     cwd=self.config.workspace_root,
                     check=False,
                     text=False,

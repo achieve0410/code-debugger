@@ -93,6 +93,7 @@ def analyze_django(
     for info in modules.values():
         for name in info.module_names:
             by_qualified.setdefault(name, []).append(info)
+    local_module_roots = {name.partition(".")[0] for name in by_qualified}
 
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
@@ -247,7 +248,8 @@ def analyze_django(
             add_diagnostic("python_import_module_ambiguous", info)
             return None
         if not candidates and target:
-            add_diagnostic("python_import_module_unresolved", info)
+            if module_name.partition(".")[0] in local_module_roots:
+                add_diagnostic("python_import_module_unresolved", info)
             return None
         if len(candidates) != 1:
             return None
@@ -330,15 +332,16 @@ def analyze_django(
                     target[1], (ast.FunctionDef, ast.AsyncFunctionDef)
                 ):
                     target_key = function_node(target[0], target[1])
-                    edges.append(
-                        {
-                            "source": owner_key,
-                            "target": target_key,
-                            "kind": "invokes",
-                            "confidence": 0.8,
-                            "reason": "ast_call",
-                        }
-                    )
+                    if target_key != owner_key:
+                        edges.append(
+                            {
+                                "source": owner_key,
+                                "target": target_key,
+                                "kind": "invokes",
+                                "confidence": 0.8,
+                                "reason": "ast_call",
+                            }
+                        )
                     visit_owner(target[0], target[1], target_key)
         boundary = _external_boundary(info, body)
         if boundary is False:
@@ -583,6 +586,7 @@ def _load_modules(
             for name in names
             if name
             not in {
+                ".agents",
                 ".aws",
                 ".config",
                 ".git",
@@ -658,6 +662,7 @@ def _candidate_roots(root: Path) -> list[Path]:
             for name in names
             if name
             not in {
+                ".agents",
                 ".aws",
                 ".config",
                 ".git",
@@ -684,6 +689,7 @@ def _candidate_roots(root: Path) -> list[Path]:
 def _prove_modules(modules: dict[str, ModuleInfo], roots: list[Path]) -> None:
     for info in modules.values():
         names: set[str] = set()
+        proof_depth = -1
         for root in roots:
             try:
                 parts = list(info.path.relative_to(root).parts)
@@ -696,11 +702,12 @@ def _prove_modules(modules: dict[str, ModuleInfo], roots: list[Path]) -> None:
                 not item.isidentifier() for item in package
             ):
                 continue
-            if any(
-                not (root.joinpath(*package[:index], "__init__.py")).is_file()
-                for index in range(1, len(package) + 1)
-            ):
+            depth = len(root.parts)
+            if depth < proof_depth:
                 continue
+            if depth > proof_depth:
+                names.clear()
+                proof_depth = depth
             names.add(".".join(package if stem == "__init__" else [*package, stem]))
         info.qualified = next(iter(names)) if len(names) == 1 else None
         info.module_names = names
@@ -735,11 +742,34 @@ def _record_import(info: ModuleInfo, node: ast.Import | ast.ImportFrom) -> None:
 def _url_modules(
     modules: dict[str, ModuleInfo], by_qualified: dict[str, list[ModuleInfo]]
 ) -> list[ModuleInfo]:
+    configured_roots = [
+        _literal_string(statement.value)
+        for info in modules.values()
+        if info.relpath.endswith("settings.py")
+        or "/settings/" in f"/{info.relpath}"
+        for statement in info.tree.body
+        if isinstance(statement, (ast.Assign, ast.AnnAssign))
+        and statement.value is not None
+        and any(
+            isinstance(target, ast.Name) and target.id == "ROOT_URLCONF"
+            for target in _assignment_targets(statement)
+        )
+    ]
+    if (
+        configured_roots
+        and all(configured_roots)
+        and len(set(configured_roots)) == 1
+    ):
+        candidates = by_qualified.get(configured_roots[0] or "", [])
+        if len(candidates) == 1:
+            return candidates
+    if configured_roots:
+        return []
     included = {
-        child.relpath
+        target[0].relpath
         for info in modules.values()
         for call, _ in _urlpatterns_calls(info.tree)
-        if (child := _include_target(info, call, by_qualified))
+        if (target := _include_target(info, call, by_qualified))
     }
     roots = [
         info
@@ -767,29 +797,46 @@ def _url_calls_from(
     info: ModuleInfo,
     by_qualified: dict[str, list[ModuleInfo]],
     prefix: str = "",
-    seen: set[str] | None = None,
+    seen: set[tuple[str, str]] | None = None,
+    pattern_name: str = "urlpatterns",
+    identity_prefix: tuple[int, ...] = (),
 ) -> list[tuple[ModuleInfo, ast.Call, str, tuple[int, ...]]]:
     seen = set() if seen is None else set(seen)
-    if info.relpath in seen:
+    current = (info.relpath, pattern_name)
+    if current in seen:
         return []
-    seen.add(info.relpath)
+    seen.add(current)
     result = []
-    for call, index in _urlpatterns_calls(info.tree):
-        child = _include_target(info, call, by_qualified)
+    for call, index in _urlpatterns_calls(info.tree, pattern_name):
+        child_target = _include_target(info, call, by_qualified)
         route = _literal_string(call.args[0]) if call.args else None
+        child_identity_prefix = (
+            (*identity_prefix, *index)
+            if child_target and child_target[1] != "urlpatterns"
+            else identity_prefix
+        )
         result.extend(
-            _url_calls_from(child, by_qualified, _join(prefix, route), seen)
-            if child and route is not None
-            else [(info, call, prefix, index)]
+            _url_calls_from(
+                child_target[0],
+                by_qualified,
+                _join(prefix, route),
+                seen,
+                child_target[1],
+                child_identity_prefix,
+            )
+            if child_target and route is not None
+            else [(info, call, prefix, (*identity_prefix, *index))]
         )
     return result
 
 
-def _urlpatterns_calls(tree: ast.Module) -> list[tuple[ast.Call, tuple[int, ...]]]:
+def _urlpatterns_calls(
+    tree: ast.Module, pattern_name: str = "urlpatterns"
+) -> list[tuple[ast.Call, tuple[int, ...]]]:
     result: list[tuple[ast.Call, tuple[int, ...]]] = []
     for statement in tree.body:
         if isinstance(statement, (ast.Assign, ast.AnnAssign)) and any(
-            isinstance(target, ast.Name) and target.id == "urlpatterns"
+            isinstance(target, ast.Name) and target.id == pattern_name
             for target in _assignment_targets(statement)
         ):
             result.extend(_url_calls_in_list(statement.value))
@@ -798,7 +845,7 @@ def _urlpatterns_calls(tree: ast.Module) -> list[tuple[ast.Call, tuple[int, ...]
             isinstance(statement, ast.AugAssign)
             and isinstance(statement.op, ast.Add)
             and isinstance(statement.target, ast.Name)
-            and statement.target.id == "urlpatterns"
+            and statement.target.id == pattern_name
             and isinstance(statement.value, ast.Attribute)
             and statement.value.attr == "urls"
             and isinstance(statement.value.value, ast.Name)
@@ -1037,7 +1084,7 @@ def _string_items(node: ast.AST) -> list[str]:
 
 def _include_target(
     info: ModuleInfo, call: ast.Call, by_qualified: dict[str, list[ModuleInfo]]
-) -> ModuleInfo | None:
+) -> tuple[ModuleInfo, str] | None:
     if (
         len(call.args) < 2
         or not isinstance(call.args[1], ast.Call)
@@ -1046,12 +1093,22 @@ def _include_target(
     ):
         return None
     argument = call.args[1].args[0]
-    name = _literal_string(argument) or _dotted(argument)
-    if not name:
-        return None
-    name = info.imports.get(name, name).split(":", 1)[0]
+    pattern_name = "urlpatterns"
+    if isinstance(argument, (ast.List, ast.Tuple)) and argument.elts:
+        reference = _dotted(argument.elts[0])
+        imported = info.imports.get(reference or "")
+        if not imported:
+            return None
+        name, separator, pattern_name = imported.partition(":")
+        if not separator or not pattern_name.isidentifier():
+            return None
+    else:
+        target_name = _literal_string(argument) or _dotted(argument)
+        if not target_name:
+            return None
+        name = info.imports.get(target_name, target_name).split(":", 1)[0]
     candidates = by_qualified.get(name, [])
-    return candidates[0] if len(candidates) == 1 else None
+    return (candidates[0], pattern_name) if len(candidates) == 1 else None
 
 
 def _valid_route_fragment(route: str) -> bool:

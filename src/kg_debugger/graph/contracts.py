@@ -272,8 +272,9 @@ def is_secret_key(key: str) -> bool:
     joined = "_".join(tokens)
     return joined in SECRET_KEY_TERMS or any("_".join(tokens[index:end]) in SECRET_KEY_TERMS for index in range(len(tokens)) for end in range(index + 1, len(tokens) + 1))
 
-def is_secret_value(value: str) -> bool:
-    return any(pattern.search(unicodedata.normalize("NFKC", value)) for pattern in SECRET_VALUE_PATTERNS)
+def is_secret_value(value: str, *, include_generic: bool = True) -> bool:
+    patterns = SECRET_VALUE_PATTERNS if include_generic else SECRET_VALUE_PATTERNS[:-1]
+    return any(pattern.search(unicodedata.normalize("NFKC", value)) for pattern in patterns)
 
 def reject_secret_material(value: Any, *, key: str | None = None) -> None:
     if key is not None and is_secret_key(key) and key not in {

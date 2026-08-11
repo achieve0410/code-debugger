@@ -7,6 +7,11 @@
 > but framework coverage remains intentionally bounded and unsupported behavior
 > is reported as `Unresolved`.
 
+[Roadmap](ROADMAP.md) · [Maintainers](MAINTAINERS.md) ·
+[Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) ·
+[Pilot evidence](docs/pilot-evidence.md) ·
+[Discussions](https://github.com/achieve0410/code-debugger/discussions)
+
 `code-debugger` is a local execution-flow debugger for React, Vue 3, Nuxt 3+,
 and Django. It statically connects browser routes, UI ownership/events, HTTP
 and payload shapes, Django URLs/views/helpers, and ORM boundaries. Unknown or
@@ -29,6 +34,17 @@ databases, or external URLs, and it has no telemetry or export path.
 Select **Analyze**, choose `/orders`, and use **Expand all** to reveal the
 frontend-to-Django flow. Select any node or edge to inspect its bounded evidence
 on the right. Click the image for the full-size view.*
+
+## Evidence and project maturity
+
+The demo and conformance suite use synthetic repository fixtures. They prove
+maintained behavior within the documented support matrix; they are not
+production case studies or evidence of third-party adoption.
+
+The project does not currently publish third-party usage, benchmark, or
+production-use claims. It collects no telemetry. Any future pilot result must
+follow the consent-based, aggregate, value-free
+[pilot evidence protocol](docs/pilot-evidence.md).
 
 ## What it shows
 
@@ -54,8 +70,10 @@ guessing across that boundary.
 Requirements: macOS/Linux, Python 3.13, OpenSSL, and access to the official
 Node.js/npm/PyPI/Playwright distributions used by bootstrap.
 
-The `v0.2.x` releases are source-only. This project does not publish npm/PyPI
-packages or prebuilt binaries; use the pinned bootstrap workflow below.
+Releases are source-only. This project does not publish npm/PyPI packages,
+prebuilt binaries, containers, or a remote installer. The current `v0.2.0`
+release predates verified archive publication; use the pinned clone/bootstrap
+workflow below for that release.
 
 ```sh
 git clone https://github.com/achieve0410/code-debugger.git
@@ -63,6 +81,43 @@ cd code-debugger
 ./scripts/bootstrap.sh
 ./scripts/run.sh --project fixtures/react-django
 ```
+
+Approved releases produced from protected `main` attach a versioned source
+archive, SHA-256 checksum, exact-archive SPDX SBOM, and GitHub attestations.
+A release is archive-installable only when those assets are present and the
+archive attestation verifies. GitHub CLI is required for this verification:
+
+```sh
+VERSION=X.Y.Z
+REPOSITORY=achieve0410/code-debugger
+TAG="v${VERSION}"
+SOURCE_SHA=$(gh api "repos/${REPOSITORY}/git/ref/tags/${TAG}" --jq ".object.sha")
+gh release download "${TAG}" \
+  --repo "${REPOSITORY}" \
+  --pattern "code-debugger-${TAG}.tar.gz" \
+  --pattern "code-debugger-${TAG}.tar.gz.sha256"
+gh attestation verify "code-debugger-${TAG}.tar.gz" \
+  --repo "${REPOSITORY}" \
+  --signer-workflow "${REPOSITORY}/.github/workflows/release.yml" \
+  --source-ref refs/heads/main \
+  --source-digest "${SOURCE_SHA}"
+gh attestation verify "code-debugger-${TAG}.tar.gz" \
+  --repo "${REPOSITORY}" \
+  --signer-workflow "${REPOSITORY}/.github/workflows/release.yml" \
+  --source-ref refs/heads/main \
+  --source-digest "${SOURCE_SHA}" \
+  --predicate-type https://spdx.dev/Document
+shasum -a 256 -c "code-debugger-v${VERSION}.tar.gz.sha256"
+tar -xzf "code-debugger-v${VERSION}.tar.gz"
+cd "code-debugger-v${VERSION}"
+./scripts/bootstrap.sh
+./scripts/run.sh --project fixtures/react-django
+```
+
+The archive preserves the repository-relative runtime contract and still
+performs the pinned bootstrap. The checksum detects corruption or a mismatched
+asset pair; publisher identity comes from the attestations. Do not replace
+either verification with a remote `curl | sh` installation path.
 
 Open `https://localhost:8443`. The server binds only `127.0.0.1`; trust the
 locally generated development certificate normally—do not disable certificate
@@ -77,6 +132,20 @@ root:
 ./scripts/run.sh --project fixtures/nuxt-django
 ./scripts/run.sh --repo /absolute/path/to/frontend --repo /absolute/path/to/backend
 ```
+
+If a Nuxt `useAxios` wrapper receives relative endpoint paths, provide its
+local API base explicitly so static matching can join those calls to Django:
+
+```sh
+./scripts/run.sh \
+  --repo /absolute/path/to/frontend \
+  --repo /absolute/path/to/backend \
+  --base-path /app/v1
+```
+
+Static relative-URL resolution requires exactly one safe local base path.
+Without one, or with multiple possible bases, those calls remain `Unresolved`
+rather than being suffix-matched to a guessed backend route.
 
 Relative roots resolve only inside this workspace. External roots require an
 explicit absolute directory. Root symlinks, traversal, credential directories
@@ -269,7 +338,9 @@ metadata consistency checks used by `npm run test:js`.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull-request
 requirements and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community
 standards. Report vulnerabilities privately according to
-[SECURITY.md](SECURITY.md). Maintainers should follow the
+[SECURITY.md](SECURITY.md). Ownership and response expectations are documented
+in [MAINTAINERS.md](MAINTAINERS.md); current direction is tracked in
+[ROADMAP.md](ROADMAP.md). Maintainers should follow the
 [release checklist](docs/releasing.md).
 
 ## License

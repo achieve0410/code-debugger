@@ -11,6 +11,7 @@ from .contracts import (
     PYTHON_QUALIFIED_NAME_RE,
     ROUTE_ID_RE,
     SERVER_EVENT_ID_RE,
+    SOURCE_SYMBOL_RE,
     is_secret_key,
     is_secret_value,
     route_sort_key,
@@ -106,6 +107,11 @@ def _reject_fragment_secret_material(value: Any, *, key: str | None = None) -> N
             and EDGE_ID_RE.fullmatch(value)
             or key == "eventId"
             and SERVER_EVENT_ID_RE.fullmatch(value)
+            or key in {"key", "identity", "source", "target"}
+            and not is_secret_value(value, include_generic=False)
+            or key in {"label", "symbol"}
+            and SOURCE_SYMBOL_RE.fullmatch(value)
+            and not is_secret_value(value, include_generic=False)
         ):
             return
         if is_secret_value(value):
