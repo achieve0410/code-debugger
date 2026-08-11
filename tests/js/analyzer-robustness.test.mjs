@@ -91,6 +91,62 @@ test("an oversized or broken SFC does not prevent healthy files from being analy
   }
 });
 
+test("malformed framework sources emit diagnostics without inferred facts", async (t) => {
+  for (const sample of [
+    {
+      framework: "react",
+      file: "src/Broken.tsx",
+      dependencies: { react: "19.2.8" },
+      source: "export function Broken() { return <div>; }\n",
+    },
+    {
+      framework: "vue",
+      file: "src/Broken.vue",
+      dependencies: { vue: "3.5.40" },
+      source: "<template><button @click=\"go\"></template>\n<script setup>function go() { return true; }</script>\n",
+    },
+  ]) {
+    await t.test(sample.framework, async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), `code-debugger-malformed-${sample.framework}-`));
+      try {
+        await fs.mkdir(path.join(root, "src"), { recursive: true });
+        await fs.writeFile(
+          path.join(root, "package.json"),
+          JSON.stringify({ dependencies: sample.dependencies }),
+        );
+        await fs.writeFile(path.join(root, sample.file), sample.source);
+
+        const fragment = await runAnalyzerRoot(root, ["--frontend-only"]);
+        assert.equal(
+          fragment.nodes.some((node) => node.source.path === sample.file),
+          false,
+          "malformed source must not emit inferred nodes",
+        );
+        const diagnostic = fragment.diagnostics.find(
+          (item) => item.source?.path === sample.file,
+        );
+        assert.match(diagnostic?.id ?? "", /^d_[0-9a-f]{64}$/u);
+        assert.deepEqual(
+          { ...diagnostic, id: undefined },
+          {
+            id: undefined,
+            code: "unsupported_syntax",
+            severity: "warning",
+            message: "Unsupported syntax was left unresolved.",
+            repository: "fixture",
+            source: {
+              repository: "fixture",
+              path: sample.file,
+            },
+          },
+        );
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
 test("plain TypeScript projects emit an explicit unsupported diagnostic", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-debugger-plain-ts-"));
   try {

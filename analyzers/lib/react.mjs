@@ -8,6 +8,7 @@ import {
   createTsSourceFile,
   dynamicBranchSignals,
   expressionName,
+  hasTsParseDiagnostics,
   isComponentName,
   jsxAttribute,
   jsxAttributeComponent,
@@ -29,7 +30,15 @@ export function collectReact(files, builder) {
     .map((file) => {
       const text = readSourceText(file, builder);
       if (text === undefined) return undefined;
-      return { file, text, lineOffset: 0, sourceFile: createTsSourceFile(file, text) };
+      const sourceFile = createTsSourceFile(file, text);
+      if (hasTsParseDiagnostics(sourceFile)) {
+        builder.addDiagnostic({
+          code: "unsupported_syntax",
+          source: { path: relPath(builder.root, file) },
+        });
+        return undefined;
+      }
+      return { file, text, lineOffset: 0, sourceFile };
     })
     .filter(Boolean);
   const componentCandidates = new Map();
