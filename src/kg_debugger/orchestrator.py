@@ -218,6 +218,19 @@ class Orchestrator:
                     None,
                 ) is not None
             ]
+            if len(endpoint_edges) != 1:
+                diagnostics.append(
+                    self._runtime_diagnostic(
+                        "runtime_event_ambiguous"
+                        if len(endpoint_edges) > 1
+                        else "runtime_event_unmatched",
+                        event_id,
+                        [edge["source"] for edge in endpoint_edges]
+                        if len(endpoint_edges) > 1
+                        else None,
+                    )
+                )
+                continue
             endpoint_evidence = {
                 "kind": "observed",
                 "adapter": "kg_debugger.runtime",
@@ -236,8 +249,7 @@ class Orchestrator:
                         (url_view_edges[0], "runtime_coherent_view"),
                     ]
                 )
-            if len(endpoint_edges) == 1:
-                targets.append((endpoint_edges[0], "runtime_coherent_resolution"))
+            targets.append((endpoint_edges[0], "runtime_coherent_resolution"))
             for target, reason in targets:
                 observed_by_target.setdefault(target["id"], []).append(
                     {**endpoint_evidence, "reason": reason}
