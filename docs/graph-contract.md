@@ -27,7 +27,10 @@ No source/root/fragment insertion order is an identity or ordering input.
 A source location is exactly `{repository,path,line?,endLine?,symbol?}`.
 `path` is a safe repository-relative POSIX path; absolute/drive/UNC,
 backslash, traversal, encoded separators, controls, and symlink provenance are
-invalid. A node is exactly:
+invalid. The persisted/displayed graph retains that canonical path. Only the
+explicit Inspector clipboard projection decodes each validated segment once to
+produce a repository-relative filesystem `path[:line][:symbol]`; this does not
+change graph identity or persistence. A node is exactly:
 
 ```text
 {id,kind,identityKey,label,layer,source,evidence,confidence,metadata}

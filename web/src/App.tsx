@@ -1033,7 +1033,7 @@ function Detail({ selection, graph, visible, route, evidenceFilter, layerFilter,
   const targetNode = edge ? graph.nodes.find((entry) => entry.id === edge.target) ?? null : null;
   const lines = node ? node.source.line === undefined ? "Not reported" : node.source.endLine === undefined || node.source.endLine === node.source.line ? String(node.source.line) : `${node.source.line}–${node.source.endLine}` : "Not reported";
   const sourceLocation = node && node.layer !== "external" && node.layer !== "unresolved"
-    ? [node.source.path, node.source.line, node.source.symbol].filter((part) => part !== undefined).join(":")
+    ? [node.source.path.split("/").map((segment) => decodeURIComponent(segment)).join("/"), node.source.line, node.source.symbol].filter((part) => part !== undefined).join(":")
     : null;
   const copySource = async () => {
     if (!sourceLocation) return;

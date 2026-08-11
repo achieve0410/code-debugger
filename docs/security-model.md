@@ -11,9 +11,19 @@ can access the user account, process memory, local certificate/private key, or
 loopback socket. Do not claim otherwise.
 
 The tool never connects to production servers/databases, non-loopback runtime
-collectors, or source-discovered external URLs. It has no telemetry, exporter,
-remote collector, or external traversal. An external URL is parsed without
-fetching and represented only as a terminal structural boundary.
+collectors, or source-discovered external URLs. It has no telemetry,
+automatic/bulk exporter, remote collector, or external traversal. An external
+URL is parsed without fetching and represented only as a terminal structural
+boundary.
+
+The sole user-initiated handoff is the Inspector clipboard action for a
+selected local node with source. It decodes each already-validated canonical
+path segment exactly once and copies repository-relative filesystem
+`path[:line][:symbol]`; the repository remains separately visible in the
+Inspector. The action is absent for edges, external nodes, and unresolved
+nodes. It never copies source text, graph or request/response data, absolute
+roots, credentials, capabilities, or query values, and it is neither automatic
+nor persistent.
 
 Configured roots are read-only. Workspace-relative roots must remain inside the
 workspace; external roots must be explicit local absolute directories. Missing,

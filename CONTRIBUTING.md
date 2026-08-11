@@ -53,7 +53,13 @@ Keep changes focused and reuse existing patterns. In particular:
   converters.
 - Never connect to production, databases, non-loopback collectors, or external
   URLs.
-- Never add telemetry, CORS, exports, TLS bypasses, or persistent capabilities.
+- Never add telemetry, CORS, automatic/bulk exports, TLS bypasses, or persistent
+  capabilities.
+- Keep the Inspector clipboard action limited to an explicit selected local
+  node's segment-wise-decoded repository-relative filesystem
+  `path[:line][:symbol]`; never widen it to source text, graph/body data,
+  absolute roots, credentials, capabilities, or edge/external/unresolved
+  selections.
 - Do not collect or publish credentials, cookies, headers, request/response
   bodies, query values, source excerpts, absolute roots, or real analyzed
   project data.
