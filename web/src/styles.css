@@ -204,14 +204,27 @@ input:disabled {
   margin: 0 0 var(--space-2);
 }
 
+.operation-status:empty {
+  display: none;
+}
+
 .alert-banner,
+[data-testid="operation-alert"] {
+  border-radius: var(--radius-sm);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+}
+
+.alert-banner {
+  background: var(--wb-warning-surface);
+  border: 1px solid var(--wb-warning);
+  color: var(--wb-warning);
+}
+
 [data-testid="operation-alert"] {
   background: var(--wb-error-surface);
   border: 1px solid var(--wb-error);
-  border-radius: var(--radius-sm);
   color: var(--wb-error);
-  margin: 0 0 var(--space-3);
-  padding: var(--space-2) var(--space-3);
 }
 
 .styling-fallback {
