@@ -194,7 +194,7 @@ test("real fixture exposes the minimized frontend-to-Django route chain and term
   }
 });
 
-test("real fixture installs capture analysis directly, exposes transient observed evidence, and refreshes static data explicitly", async ({ page }, testInfo) => {
+test("real fixture applies runtime evidence atomically and refreshes static data explicitly", async ({ page }, testInfo) => {
   const expected = fixture[testInfo.project.name as keyof typeof fixture];
   let graphGets = 0;
   page.on("request", (request) => {
@@ -248,18 +248,23 @@ test("real fixture installs capture analysis directly, exposes transient observe
   await expect(page.getByTestId("transient-status")).toHaveText("Runtime evidence · transient");
   await expect(page.getByTestId("static-diff")).toHaveCount(0);
   const receipt = page.getByTestId("receipt-projection");
-  await expect(receipt).toContainText("Transient receipt projection");
-  await expect(receipt).toContainText("Current observed graph evidence from this response only");
-  await expect(receipt).toContainText("Server receipt provenance timestamp");
-  await expect(receipt).toContainText("Event ID");
-  await expect(receipt).toContainText("Observed graph annotations");
-  await expect(receipt).not.toContainText(/execution order|trace|replay|stack|receivedAt|request_body|response_body|headers|cookie|authorization/i);
-  const receiptOrder = await page.getByTestId("receipt-entry").evaluateAll((items) => items.map((item) => {
-    const values = [...item.querySelectorAll("dd")].map((entry) => entry.textContent ?? "");
-    return [values[0], values[1]];
-  }));
-  expect(receiptOrder.length).toBeGreaterThan(0);
-  expect(receiptOrder).toEqual([...receiptOrder].sort(([leftTime, leftId], [rightTime, rightId]) => leftTime.localeCompare(rightTime) || leftId.localeCompare(rightId)));
+  if (expected.runtimeResolutionEvidence === "Observed") {
+    await expect(receipt).toContainText("Transient receipt projection");
+    await expect(receipt).toContainText("Current observed graph evidence from this response only");
+    await expect(receipt).toContainText("Server receipt provenance timestamp");
+    await expect(receipt).toContainText("Event ID");
+    await expect(receipt).toContainText("Observed graph annotations");
+    await expect(receipt).not.toContainText(/execution order|trace|replay|stack|receivedAt|request_body|response_body|headers|cookie|authorization/i);
+    const receiptOrder = await page.getByTestId("receipt-entry").evaluateAll((items) => items.map((item) => {
+      const values = [...item.querySelectorAll("dd")].map((entry) => entry.textContent ?? "");
+      return [values[0], values[1]];
+    }));
+    expect(receiptOrder.length).toBeGreaterThan(0);
+    expect(receiptOrder).toEqual([...receiptOrder].sort(([leftTime, leftId], [rightTime, rightId]) => leftTime.localeCompare(rightTime) || leftId.localeCompare(rightId)));
+  } else {
+    await expect(receipt).toHaveCount(0);
+    await expect(page.getByTestId("action-center")).toContainText("Runtime event ambiguous");
+  }
   await expect(page.getByTestId("graph-canvas")).toBeVisible();
   expect(graphGets).toBe(initialGraphGets);
 
@@ -267,7 +272,7 @@ test("real fixture installs capture analysis directly, exposes transient observe
   await page.getByRole("button", { name: "Expand all", exact: true }).click();
   await expectOutlineNode(page, "GET /api/items/", "http_call", "Inferred", { repository: testInfo.project.name, ...expected.httpSource });
   await expectOutlineNode(page, "Request payload", "request_payload", "Inferred", { repository: testInfo.project.name, ...expected.payloadSource });
-  await expectOutlineNode(page, "URL pattern", "django_url_pattern", "Observed");
+  await expectOutlineNode(page, "URL pattern", "django_url_pattern", expected.runtimeResolutionEvidence);
   await expectOutlineEdge(page, testInfo.project.name, expected.runtimeResolutionEvidence, expected.runtimeResolutionOccurrence);
   await expectResolutionInspector(page, expected.runtimeInspectorEvidence, expected.runtimeInspectorRecords);
   await expectOutlineNode(page, "GET https://inventory.example.test", "external_service");

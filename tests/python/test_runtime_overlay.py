@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -161,8 +162,14 @@ class RuntimeOverlayProtocolTests(unittest.TestCase):
                 ],
             )
     def _static_snapshot(
-        self, *, include_view_edge: bool = True, ambiguous_url: bool = False
+        self,
+        *,
+        include_view_edge: bool = True,
+        ambiguous_url: bool = False,
+        inbound_count: int = 1,
     ) -> GraphSnapshotV2:
+        if inbound_count not in {0, 1, 2}:
+            raise ValueError("inbound_count must be 0, 1, or 2")
         evidence = [Evidence("inferred", "test", "1", "ast_symbol_declaration")]
         url_source = SourceLocation("repo", "urls.py", line=1, symbol="items")
         view_source = SourceLocation("repo", "views.py", line=1, symbol="items")
@@ -215,18 +222,49 @@ class RuntimeOverlayProtocolTests(unittest.TestCase):
                 "hasSensitiveQuery": False,
             },
         )
-        edges = [
-            Edge(
-                edge_identity(call_id, url_id, "resolves_to"),
-                call_id,
-                url_id,
-                "resolves_to",
-                evidence,
-                0.8,
-                {"resolutionTier": "exact_endpoint"},
+        edges = []
+        nodes = [url, view]
+        if inbound_count >= 1:
+            nodes.append(call)
+            edges.append(
+                Edge(
+                    edge_identity(call_id, url_id, "resolves_to"),
+                    call_id,
+                    url_id,
+                    "resolves_to",
+                    evidence,
+                    0.8,
+                    {"resolutionTier": "exact_endpoint"},
+                )
             )
-        ]
-        nodes = [call, url, view]
+        if inbound_count == 2:
+            alternate_call_id = node_identity(
+                "repo", "alternate_client.ts", "http_call", "loadAlternate"
+            )
+            nodes.append(
+                replace(
+                    call,
+                    id=alternate_call_id,
+                    identityKey="loadAlternate",
+                    source=SourceLocation(
+                        "repo",
+                        "alternate_client.ts",
+                        line=1,
+                        symbol="loadAlternate",
+                    ),
+                )
+            )
+            edges.append(
+                Edge(
+                    edge_identity(alternate_call_id, url_id, "resolves_to"),
+                    alternate_call_id,
+                    url_id,
+                    "resolves_to",
+                    evidence,
+                    0.8,
+                    {"resolutionTier": "exact_endpoint"},
+                )
+            )
         if include_view_edge:
             edges.append(
                 Edge(
@@ -376,6 +414,52 @@ class RuntimeOverlayProtocolTests(unittest.TestCase):
                 for evidence in item.evidence
             )
         )
+
+    def test_overlay_requires_one_inbound_resolution_before_any_observation(
+        self,
+    ) -> None:
+        for inbound_count, expected_code in (
+            (0, "runtime_event_unmatched"),
+            (2, "runtime_event_ambiguous"),
+        ):
+            with self.subTest(inbound_count=inbound_count):
+                orchestrator = object.__new__(Orchestrator)
+                orchestrator.config = SimpleNamespace(endpoint=EndpointConfig())
+                orchestrator.runtime_scope_id = (
+                    "11111111-1111-1111-1111-111111111111"
+                )
+                orchestrator.store = SimpleNamespace(
+                    list_runtime_events=lambda scope, capture: [
+                        {
+                            "eventId": "22222222-2222-4222-8222-222222222222",
+                            "receivedAt": "2026-01-01T00:00:00.000Z",
+                            "payload": {
+                                "captureId": capture,
+                                "method": "GET",
+                                "path": "/api/items/",
+                                "viewQualifiedName": "views.items",
+                            },
+                        }
+                    ]
+                )
+
+                overlay = orchestrator._overlay_runtime(
+                    self._static_snapshot(inbound_count=inbound_count),
+                    "capture-1",
+                )
+
+                self.assertEqual(
+                    [diagnostic["code"] for diagnostic in overlay.diagnostics],
+                    [expected_code],
+                )
+                self.assertFalse(
+                    any(
+                        evidence.kind == "observed"
+                        for item in [*overlay.nodes, *overlay.edges]
+                        for evidence in item.evidence
+                    )
+                )
+
     def test_overlay_uses_configured_base_path_for_runtime_identity(self) -> None:
         orchestrator = object.__new__(Orchestrator)
         orchestrator.config = SimpleNamespace(

@@ -272,7 +272,9 @@ class StoreAndRuntimeIntegrationTests(unittest.TestCase):
             ],
         )
 
-    def test_static_snapshot_persists_without_ephemeral_runtime_overlay(self) -> None:
+    def test_runtime_event_without_inbound_flow_stays_ephemeral_and_unobserved(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "urls.py").write_text(
@@ -296,16 +298,28 @@ class StoreAndRuntimeIntegrationTests(unittest.TestCase):
             )
             overlay = orchestrator.analyze("capture-1")
             persisted = orchestrator.store.load_snapshot()
+        self.assertFalse(
+            any(
+                evidence.kind == "observed"
+                for item in [*overlay.nodes, *overlay.edges]
+                for evidence in item.evidence
+            )
+        )
         self.assertTrue(
             any(
-                evidence.eventId == event_id
-                for node in overlay.nodes
-                for evidence in node.evidence
-                if evidence.kind == "observed"
+                diagnostic["code"] == "runtime_event_unmatched"
+                and diagnostic["eventId"] == event_id
+                for diagnostic in overlay.diagnostics
             )
         )
         self.assertFalse(
             any(evidence.kind == "observed" for node in persisted.nodes for evidence in node.evidence)
+        )
+        self.assertFalse(
+            any(
+                diagnostic["code"].startswith("runtime_")
+                for diagnostic in persisted.diagnostics
+            )
         )
 
 
