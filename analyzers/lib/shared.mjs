@@ -33,17 +33,15 @@ export function readSourceText(filePath, builder) {
     const stat = fs.statSync(filePath);
     if (stat.size > MAX_SOURCE_FILE_BYTES) {
       builder.addDiagnostic({
-        code: "file_skipped",
-        message: `source file exceeds ${MAX_SOURCE_FILE_BYTES} bytes and was not analyzed`,
+        code: "source_read_failed",
         source: { path: sourcePath },
       });
       return undefined;
     }
     return fs.readFileSync(filePath, "utf8");
-  } catch (error) {
+  } catch {
     builder.addDiagnostic({
-      code: "file_skipped",
-      message: `source file could not be read: ${error?.code ?? error?.name ?? "error"}`,
+      code: "source_read_failed",
       source: { path: sourcePath },
     });
     return undefined;
@@ -91,10 +89,9 @@ export function walkFiles(root, skipped = []) {
     let entries;
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch (error) {
+    } catch {
       skipped.push({
-        code: "directory_skipped",
-        message: `directory could not be read: ${error?.code ?? error?.name ?? "error"}`,
+        code: "source_read_failed",
         source: { path: relPath(root, dir) },
       });
       return;

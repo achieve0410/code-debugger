@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-import { detectFrontendFrameworks, walkFiles } from "./lib/shared.mjs";
+import { detectFrontendFrameworks, FRONTEND_EXTS, relPath, walkFiles } from "./lib/shared.mjs";
 import { FragmentBuilder } from "./lib/builder.mjs";
 import { collectReact } from "./lib/react.mjs";
 import { collectVue } from "./lib/vue.mjs";
@@ -49,6 +49,15 @@ function main() {
   const files = walkFiles(root, walkDiagnostics);
   for (const diagnostic of walkDiagnostics) builder.addDiagnostic(diagnostic);
   const frameworks = detectFrontendFrameworks(root, files);
+  if (!frameworks.react && !frameworks.vue && !frameworks.nuxt) {
+    const source = files.find((file) => FRONTEND_EXTS.has(path.extname(file)));
+    if (source) {
+      builder.addDiagnostic({
+        code: "unsupported_syntax",
+        source: { path: relPath(root, source) },
+      });
+    }
+  }
   if (frameworks.react) collectReact(files, builder);
   if (frameworks.nuxt) {
     collectVue(files, builder, {

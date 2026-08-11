@@ -22,8 +22,7 @@ export function collectNuxt(files, builder) {
     const config = readNuxtConfig(configFile, builder);
     if (config.pagesEnabled === false) {
       builder.addDiagnostic({
-        code: "nuxt_pages_disabled",
-        message: "nuxt.config disables the pages module; file-based routes were not generated",
+        code: "unsupported_syntax",
         source: { path: relPath(builder.root, configFile) },
       });
       continue;
@@ -31,8 +30,7 @@ export function collectNuxt(files, builder) {
     const pagesDir = resolvePagesDir(files, appRoot, config.srcDir);
     if (!pagesDir) {
       builder.addDiagnostic({
-        code: "nuxt_pages_missing",
-        message: "no pages directory was found for this Nuxt app; file-based routes were not generated",
+        code: "unsupported_syntax",
         source: { path: relPath(builder.root, configFile) },
       });
       continue;
@@ -91,8 +89,7 @@ function readNuxtConfig(configFile, builder) {
       const literal = literalString(srcDir);
       if (literal === undefined) {
         builder.addDiagnostic({
-          code: "nuxt_config_dynamic",
-          message: "nuxt.config srcDir is not a static literal; the default pages location is assumed",
+          code: "unsupported_syntax",
           source: { path: relPath(builder.root, configFile) },
         });
       } else {

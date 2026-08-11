@@ -68,6 +68,65 @@ test("an oversized or broken SFC does not prevent healthy files from being analy
       )),
       "healthy files must still be analyzed",
     );
+    const diagnostic = fragment.diagnostics.find(
+      (item) => item.source?.path === "src/huge.ts",
+    );
+    assert.match(diagnostic?.id ?? "", /^d_[0-9a-f]{64}$/u);
+    assert.deepEqual(
+      { ...diagnostic, id: undefined },
+      {
+        id: undefined,
+        code: "source_read_failed",
+        severity: "warning",
+        message: "A source file could not be read.",
+        repository: "fixture",
+        source: {
+          repository: "fixture",
+          path: "src/huge.ts",
+        },
+      },
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("plain TypeScript projects emit an explicit unsupported diagnostic", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-debugger-plain-ts-"));
+  try {
+    await fs.mkdir(path.join(root, "src"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, "src", "plain.ts"),
+      "export async function loadItems() { return fetch('/api/items'); }\n",
+    );
+
+    const fragment = await runAnalyzerRoot(root, ["--frontend-only"]);
+    assert.deepEqual(stableSummary(fragment), {
+      routes: [],
+      nodeKinds: {},
+      edgeKinds: {},
+      diagnostics: ["unsupported_syntax"],
+      boundedUrlProofs: 0,
+    });
+    const [diagnostic] = fragment.diagnostics;
+    assert.equal(
+      diagnostic.id,
+      "d_32965cff5f83ce7da58df5a2bd507e5800cf151760306deb4cf3eb04a7af7aa2",
+    );
+    assert.deepEqual(
+      { ...diagnostic, id: undefined },
+      {
+        id: undefined,
+        code: "unsupported_syntax",
+        severity: "warning",
+        message: "Unsupported syntax was left unresolved.",
+        repository: "fixture",
+        source: {
+          repository: "fixture",
+          path: "src/plain.ts",
+        },
+      },
+    );
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

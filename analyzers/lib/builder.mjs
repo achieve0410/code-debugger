@@ -1,5 +1,54 @@
-import { EVIDENCE_REASONS, URL_PROOF_LIMITS, validateBoundedUrlProof } from "../contracts.mjs";
+import { createHash } from "node:crypto";
+
+import { DIAGNOSTIC_CODES, EVIDENCE_REASONS, URL_PROOF_LIMITS, validateBoundedUrlProof } from "../contracts.mjs";
 import { ADAPTER, ADAPTER_VERSION } from "./shared.mjs";
+
+const DIAGNOSTIC_SPECS = Object.freeze({
+  source_read_failed: Object.freeze({
+    severity: "warning",
+    message: "A source file could not be read.",
+  }),
+  unsupported_syntax: Object.freeze({
+    severity: "warning",
+    message: "Unsupported syntax was left unresolved.",
+  }),
+  unresolved_dynamic_target: Object.freeze({
+    severity: "warning",
+    message: "A dynamic target could not be proven.",
+  }),
+  unresolved_referenced_target: Object.freeze({
+    severity: "warning",
+    message: "A referenced target was not declared in the analyzed graph.",
+  }),
+});
+const DIAGNOSTIC_FIELDS = Object.freeze([
+  "code",
+  "severity",
+  "message",
+  "repository",
+  "source",
+  "nodeId",
+  "edgeId",
+  "candidateIds",
+  "eventId",
+]);
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => (
+      `${JSON.stringify(key)}:${canonicalJson(value[key])}`
+    )).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function diagnosticId(diagnostic) {
+  const fields = DIAGNOSTIC_FIELDS.map((key) => canonicalJson(diagnostic[key] ?? null));
+  return `d_${createHash("sha256").update(JSON.stringify(fields)).digest("hex")}`;
+}
 
 function defaultReason(kind) {
   if (kind === "unresolved_target") return "dynamic_target_unproven";
@@ -44,7 +93,7 @@ export class FragmentBuilder {
     this.root = root;
     this.repository = repository;
     this.routes = new Map(); this.nodes = new Map(); this.edges = new Map();
-    this.diagnostics = []; this.boundedUrlProofs = new Map();
+    this.diagnostics = new Map(); this.boundedUrlProofs = new Map();
   }
   addRoute(route) {
     const normalized = { ...route, source: minimizedSource({ repository: this.repository, ...route.source }) };
@@ -66,7 +115,26 @@ export class FragmentBuilder {
     const id = `${edge.source}->${edge.kind}->${edge.target}`;
     if (!this.edges.has(id)) this.edges.set(id, { confidence: 0.8, evidenceKind: "inferred", reason: "ast_call", ...edge, metadata: minimizedEdgeMetadata(edge.kind, edge.metadata) });
   }
-  addDiagnostic() {}
+  addDiagnostic(diagnostic) {
+    if (!DIAGNOSTIC_CODES.includes(diagnostic.code) || !(diagnostic.code in DIAGNOSTIC_SPECS)) {
+      throw new Error("invalid frontend diagnostic code");
+    }
+    const spec = DIAGNOSTIC_SPECS[diagnostic.code];
+    const normalized = {
+      code: diagnostic.code,
+      severity: spec.severity,
+      message: spec.message,
+      repository: this.repository,
+    };
+    if (diagnostic.source?.path) {
+      normalized.source = minimizedSource({
+        repository: this.repository,
+        ...diagnostic.source,
+      });
+    }
+    const id = diagnosticId(normalized);
+    this.diagnostics.set(id, { id, ...normalized });
+  }
   unresolved(keyParts, _label, source, reason) {
     const key = `unresolved:${keyParts.join(":")}`;
     this.addNode({ key, kind: "unresolved_target", label: "Unresolved", layer: "unresolved", source, evidenceKind: "unresolved", reason, confidence: 0.3, metadata: {} });
@@ -95,7 +163,7 @@ export class FragmentBuilder {
       routes: [...this.routes.values()].map(({ key, path, framework }) => ({ key, path, framework })).sort(byKey),
       nodes: [...this.nodes.values()].sort(byKey),
       edges: [...this.edges.values()].sort((a, b) => `${a.source}:${a.kind}:${a.target}`.localeCompare(`${b.source}:${b.kind}:${b.target}`)),
-      diagnostics: [],
+      diagnostics: [...this.diagnostics.values()].sort((a, b) => a.id.localeCompare(b.id)),
       boundedUrlProofs: [...this.boundedUrlProofs.values()].sort((a, b) => (
         a.callKey.localeCompare(b.callKey) || a.normalizedPath.localeCompare(b.normalizedPath)
       )),
