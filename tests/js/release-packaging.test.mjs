@@ -10,7 +10,6 @@ const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const packageScript = path.join(repoRoot, "scripts/package-release.sh");
 const installScript = path.join(repoRoot, "scripts/install-smoke.sh");
-const envScript = path.join(repoRoot, "scripts/env.sh");
 
 async function git(cwd, args) {
   return execFileAsync("git", args, { cwd });
@@ -65,16 +64,14 @@ async function createReleaseRepository(t, options = {}) {
   return root;
 }
 
-test("sourced env preserves an explicit debugger root", async (t) => {
-  const unrelatedCwd = await fs.mkdtemp(path.join(os.tmpdir(), "code-debugger-env-"));
-  t.after(() => fs.rm(unrelatedCwd, { recursive: true, force: true }));
-
+test("sourced env preserves an explicit debugger root", async () => {
   const { stdout } = await execFileAsync(
     "sh",
     [
       "-c",
       [
-        '. "$1"',
+        ". ./scripts/env.sh",
+        "cd /",
         "printf '%s\\n' \\",
         '  "$KG_DEBUGGER_ROOT" \\',
         '  "$KG_DEBUGGER_NODE" \\',
@@ -84,10 +81,9 @@ test("sourced env preserves an explicit debugger root", async (t) => {
         '  "$KG_DEBUGGER_KEY"',
       ].join("\n"),
       "env-contract",
-      envScript,
     ],
     {
-      cwd: unrelatedCwd,
+      cwd: repoRoot,
       env: { ...process.env, KG_DEBUGGER_ROOT: repoRoot, PYTHONPATH: "" },
     },
   );
