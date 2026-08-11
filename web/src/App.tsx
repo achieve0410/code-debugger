@@ -827,12 +827,12 @@ function reducer(model: WorkbenchModel, action: any): WorkbenchModel {
   }
   if (action.type === "operation/failure") {
     const repositoryMismatch = action.errorCode === "repository_set_mismatch" || action.errorCode === "snapshot_repository_set_mismatch";
-    const stale = Boolean(!repositoryMismatch && model.graph && model.graph.repositorySetId === action.repositorySetId && (action.errorStatus === 409 || action.errorStatus === 422));
+    const stale = Boolean(!repositoryMismatch && model.graph && model.graph.repositorySetId === action.repositorySetId);
     return {
       ...model,
       ...(repositoryMismatch ? { graph: null, transient: false, routeId: null, expanded: new Set<string>(), selection: null, selectionHistory: { entries: [], index: -1 }, outlineQuery: "", outlinePage: 0 } : {}),
       graphState: stale ? model.graphState : stateForError(new ApiError(action.errorStatus ?? 0, action.message)),
-      graphMessage: stale ? `stale_graph: ${action.message}` : action.message,
+      graphMessage: stale ? `Showing the last valid graph. ${action.message}` : action.message,
       statusText: "",
       operation: { phase: "idle", id: action.id },
       selectionNote: "",

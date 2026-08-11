@@ -743,6 +743,40 @@ test("refresh rebinds a retained selection and clears a removed node or edge sel
   await page.getByTestId("refresh-button").click(); await expect(page.getByTestId("selected-detail")).toContainText("Route Summary");
 });
 
+for (const failure of ["server", "network", "malformed-response"] as const) {
+  test(`keeps the last valid graph usable after a ${failure} operation failure`, async ({ page }) => {
+    await mock(page);
+    await page.unroute("**/api/analyze");
+    await page.route("**/api/analyze", (route) => {
+      if (failure === "network") return route.abort("failed");
+      return route.fulfill({
+        status: failure === "server" ? 500 : 200,
+        json: failure === "server" ? { error: "internal_error" } : {},
+      });
+    });
+    await page.goto("/");
+    const home = graphNode(page, "Home");
+    await home.click();
+    await expect(home).toHaveAttribute("aria-pressed", "true");
+
+    await page.getByTestId("analyze-button").click();
+
+    await expect(page.getByTestId("operation-alert")).toBeVisible();
+    await expect(page.getByTestId("graph-message")).toBeVisible();
+    const errorBackground = await page.getByTestId("operation-alert").evaluate((element) => getComputedStyle(element).backgroundColor);
+    const staleBackground = await page.getByTestId("graph-message").evaluate((element) => getComputedStyle(element).backgroundColor);
+    expect.soft(staleBackground).not.toBe(errorBackground);
+    await expect.soft(page.getByTestId("operation-status")).toBeHidden();
+    await expect(page.getByTestId("graph-canvas")).toBeVisible();
+    await expect(home).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("inspector-identity").getByText("Home", { exact: true })).toBeVisible();
+    const loadItems = graphNode(page, "loadItems");
+    await loadItems.click();
+    await expect(loadItems).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("inspector-identity").getByText("loadItems", { exact: true })).toBeVisible();
+  });
+}
+
 test("shows branch-aware focus history, selected-edge parent preference, bounded cycle markers, and refresh retention", async ({ page }) => {
   const alternateUnresolved = edge(byLabel.Home.id, byLabel.Unresolved.id, "calls", {}, [unresolved]);
   const cycle = edge(byLabel.list_active_items.id, byLabel.loadItems.id, "calls");
