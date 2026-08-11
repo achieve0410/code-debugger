@@ -181,6 +181,57 @@ class DjangoAnalyzerTests(unittest.TestCase):
                 )
             )
 
+    def test_equivalent_converter_paths_shadow_later_method_specific_views(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write(root, "manage.py", "")
+            self.write(root, "app/__init__.py", "")
+            self.write(
+                root,
+                "app/views.py",
+                "from django.views.decorators.http import require_GET, require_POST\n"
+                "@require_GET\n"
+                "def first(request): pass\n"
+                "@require_POST\n"
+                "def second(request): pass\n",
+            )
+            self.write(
+                root,
+                "app/urls.py",
+                "from django.urls import path\n"
+                "from .views import first, second\n"
+                "urlpatterns = [\n"
+                "    path('same/<int:id>/', first),\n"
+                "    path('same/<int:pk>/', second),\n"
+                "]\n",
+            )
+
+            fragment = analyze_django(root, "repo")
+            url_nodes = [
+                node
+                for node in fragment["nodes"]
+                if node["kind"] == "django_url_pattern"
+                and node["source"]["path"] == "app/urls.py"
+            ]
+            self.assertEqual(
+                [
+                    (node["metadata"]["declaredPath"], node["identity"])
+                    for node in url_nodes
+                ],
+                [
+                    (
+                        "/same/<int:id>/",
+                        "url:app/urls.py:urlpatterns:0:GET",
+                    )
+                ],
+            )
+            self.assertFalse(
+                any(
+                    node["kind"] == "django_view" and node["label"] == "second"
+                    for node in fragment["nodes"]
+                )
+            )
+
     def test_exact_namespace_package_chain_is_proven(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

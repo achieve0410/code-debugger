@@ -407,10 +407,10 @@ def analyze_django(
         if parsed is None or view is None:
             add_diagnostic("unresolved_django_url", info)
             return
-        declared, normalized, converters = parsed
-        if declared in declared_url_patterns:
+        declared, normalized, converters, shadow_key = parsed
+        if shadow_key in declared_url_patterns:
             return
-        declared_url_patterns.add(declared)
+        declared_url_patterns.add(shadow_key)
         target = resolve_reference(info, _view_expression(view))
         methods = forced_methods or (_view_methods(target[1]) if target else set())
         if not methods:
@@ -1124,7 +1124,7 @@ def _valid_route_fragment(route: str) -> bool:
 
 def _route(
     prefix: str, route: str | None
-) -> tuple[str, str, list[dict[str, Any]]] | None:
+) -> tuple[str, str, list[dict[str, Any]], str] | None:
     if route is None or not _valid_route_fragment(route):
         return None
     declared = _join(prefix, route)
@@ -1135,6 +1135,7 @@ def _route(
         return None
     segments = [part for part in raw_segments if part]
     normalized = []
+    shadow_segments = []
     converters = []
     for position, segment in enumerate(segments):
         if segment.startswith("<") and segment.endswith(">"):
@@ -1153,15 +1154,18 @@ def _route(
                 }
             )
             normalized.append(f"{{p{len(converters) - 1}}}")
+            shadow_segments.append(f"<{kind}>")
         elif "<" in segment or ">" in segment:
             return None
         else:
             normalized.append(segment)
+            shadow_segments.append(segment)
     suffix = "/" if declared.endswith("/") and segments else ""
     return (
         "/" + "/".join(segments) + suffix,
         "/" + "/".join(normalized) + suffix,
         converters,
+        "/" + "/".join(shadow_segments) + suffix,
     )
 
 
