@@ -76,9 +76,9 @@ Requirements: macOS/Linux, Python 3.13, OpenSSL, and access to the official
 Node.js/npm/PyPI/Playwright distributions used by bootstrap.
 
 Releases are source-only. This project does not publish npm/PyPI packages,
-prebuilt binaries, containers, or a remote installer. The current `v0.2.0`
-release predates verified archive publication; use the pinned clone/bootstrap
-workflow below for that release.
+prebuilt binaries, containers, or a remote installer. The verified archive
+workflow begins with `code-debugger v0.2.1`. The `v0.2.0` release predates that
+workflow; use the pinned clone/bootstrap workflow below for that release.
 
 ```sh
 git clone https://github.com/achieve0410/code-debugger.git
