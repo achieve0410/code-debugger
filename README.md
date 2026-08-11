@@ -24,7 +24,12 @@ namespace (`kg_debugger`) and existing on-disk, wire, and serialized identifiers
 remain stable compatibility identifiers in `v0.2.x`.
 
 It binds the UI/API to loopback HTTPS. It does not contact production services,
-databases, or external URLs, and it has no telemetry or export path.
+databases, or external URLs, and it has no telemetry or automatic/bulk export
+path. The sole local handoff is an explicit Inspector clipboard action for a
+selected local node: it copies the segment-wise-decoded repository-relative
+filesystem `path[:line][:symbol]`, relative to the Repository shown alongside
+it. It never copies source text, graph or request/response data, absolute roots,
+credentials, capabilities, or edge/external/unresolved selections.
 
 ## Demo
 

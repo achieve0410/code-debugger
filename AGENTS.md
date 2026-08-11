@@ -24,8 +24,13 @@ Routes:Graph:Inspector 3:6:3 desktop layout.
 - Bind the service to `127.0.0.1`; retain HTTPS certificate verification.
 - Never connect to production, databases, non-loopback collectors, or external
   URLs. External URLs are terminal boundaries only.
-- Never add telemetry, exports, CORS, external traversal, TLS bypasses, or
-  capability persistence/printing.
+- Never add telemetry, automatic/bulk exports, CORS, external traversal, TLS
+  bypasses, or capability persistence/printing.
+- Keep the Inspector clipboard action limited to an explicit selected local
+  node's segment-wise-decoded repository-relative filesystem
+  `path[:line][:symbol]`; never widen it to source text, graph/body data,
+  absolute roots, credentials, capabilities, or edge/external/unresolved
+  selections.
 - Never read/store/echo credentials, cookies, authorization/session data,
   private keys, request/response bodies, raw source expressions, URL query
   values/userinfo, source excerpts, or absolute roots.
