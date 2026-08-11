@@ -9,6 +9,7 @@ import {
   createTsSourceFile,
   dynamicBranchSignals,
   expressionName,
+  hasTsParseDiagnostics,
   literalString,
   objectLiteralStringProperty,
   returnedExpression,
@@ -41,6 +42,25 @@ export function collectVue(files, builder, options = {}) {
       });
       continue;
     }
+    if (parsed.errors.length > 0) {
+      builder.addDiagnostic({
+        code: "unsupported_syntax",
+        source: { path: relPath(builder.root, file) },
+      });
+      continue;
+    }
+    const script = parsed.descriptor.scriptSetup ?? parsed.descriptor.script;
+    const scriptText = script?.content;
+    const sourceFile = scriptText === undefined
+      ? undefined
+      : createTsSourceFile(`${file}.ts`, scriptText);
+    if (sourceFile && hasTsParseDiagnostics(sourceFile)) {
+      builder.addDiagnostic({
+        code: "unsupported_syntax",
+        source: { path: relPath(builder.root, file) },
+      });
+      continue;
+    }
     const name = path.basename(file, ".vue");
     const source = { path: relPath(builder.root, file), line: 1, endLine: text.split(/\r?\n/u).length, symbol: name };
     const key = `component:${source.path}:${name}`;
@@ -56,14 +76,12 @@ export function collectVue(files, builder, options = {}) {
       metadata: { framework },
     });
 
-    const script = parsed.descriptor.scriptSetup ?? parsed.descriptor.script;
-    if (script) {
-      const scriptText = script.content;
+    if (script && scriptText !== undefined && sourceFile) {
       scriptEntries.push({
         file,
         text: scriptText,
         lineOffset: script.loc.start.line - 1,
-        sourceFile: createTsSourceFile(`${file}.ts`, scriptText),
+        sourceFile,
       });
     }
 
@@ -74,11 +92,19 @@ export function collectVue(files, builder, options = {}) {
   for (const file of files.filter((item) => FRONTEND_EXTS.has(path.extname(item)) && isFrontendSourceFile(builder.root, item))) {
     const text = readSourceText(file, builder);
     if (text === undefined) continue;
+    const sourceFile = createTsSourceFile(file, text);
+    if (hasTsParseDiagnostics(sourceFile)) {
+      builder.addDiagnostic({
+        code: "unsupported_syntax",
+        source: { path: relPath(builder.root, file) },
+      });
+      continue;
+    }
     scriptEntries.push({
       file,
       text,
       lineOffset: 0,
-      sourceFile: createTsSourceFile(file, text),
+      sourceFile,
     });
   }
 

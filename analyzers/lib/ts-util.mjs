@@ -15,6 +15,10 @@ export function createTsSourceFile(filePath, text) {
   return ts.createSourceFile(filePath, text, ts.ScriptTarget.Latest, true, scriptKind(filePath));
 }
 
+export function hasTsParseDiagnostics(sourceFile) {
+  return (sourceFile.parseDiagnostics?.length ?? 0) > 0;
+}
+
 export function sourceForEntry(entry, builder, node, symbol) {
   const start = node.getStart(entry.sourceFile);
   const end = node.getEnd();
