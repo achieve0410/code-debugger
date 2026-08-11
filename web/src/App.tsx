@@ -997,6 +997,8 @@ function CytoscapeGraph({ nodes, edges, root, selected, select, setStylingFault 
   return hasNodes ? <div className="cy-shell"><div ref={host} className="cy-stage" data-testid="graph-canvas" role="img" aria-label="Visual execution graph. Use Flow Outline after the canvas to inspect every visible node and edge." aria-describedby="flow-outline-heading" /></div> : null;
 }
 function Detail({ selection, graph, visible, route, evidenceFilter, layerFilter, transient, select }: { selection: Selection; graph: GraphSnapshotV2; visible: { nodes: GraphNode[]; edges: GraphEdge[] }; route: Route | null; evidenceFilter: Set<EvidenceKind>; layerFilter: Set<Layer>; transient: boolean; select: (selection: Selection) => void }) {
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  useEffect(() => setCopyStatus("idle"), [selection?.id, selection?.type]);
   const selectedNode = selection?.type === "node" ? graph.nodes.find((entry) => entry.id === selection.id) ?? null : null;
   const selectedEdge = selection?.type === "edge" ? graph.edges.find((entry) => entry.id === selection.id) ?? null : null;
   const item = selectedNode ?? selectedEdge;
@@ -1030,8 +1032,21 @@ function Detail({ selection, graph, visible, route, evidenceFilter, layerFilter,
   const sourceNode = edge ? graph.nodes.find((entry) => entry.id === edge.source) ?? null : null;
   const targetNode = edge ? graph.nodes.find((entry) => entry.id === edge.target) ?? null : null;
   const lines = node ? node.source.line === undefined ? "Not reported" : node.source.endLine === undefined || node.source.endLine === node.source.line ? String(node.source.line) : `${node.source.line}–${node.source.endLine}` : "Not reported";
+  const sourceLocation = node && node.layer !== "external" && node.layer !== "unresolved"
+    ? [node.source.path, node.source.line, node.source.symbol].filter((part) => part !== undefined).join(":")
+    : null;
+  const copySource = async () => {
+    if (!sourceLocation) return;
+    try {
+      await navigator.clipboard.writeText(sourceLocation);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
+  };
   return <section className="inspector-section" data-testid="selected-detail"><h3>{node ? node.label : kindWords(edge!.kind)}</h3>
     {node ? <><div id="inspector-identity" data-testid="inspector-identity"><h4>Identity</h4><dl className="detail-list"><div><dt>Label</dt><dd>{node.label}</dd></div><div><dt>Kind</dt><dd>{kindWords(node.kind)}</dd></div><div><dt>Layer</dt><dd>{node.layer}</dd></div><div><dt>Confidence</dt><dd>{confidence}</dd></div></dl></div><div id="inspector-source" data-testid="inspector-source"><h4>Source</h4><dl className="detail-list"><div><dt>Repository</dt><dd>{node.source.repository}</dd></div><div><dt>Relative path</dt><dd>{node.source.path}</dd></div><div><dt>Lines</dt><dd>{lines}</dd></div><div><dt>Symbol</dt><dd>{node.source.symbol ?? "Not reported"}</dd></div></dl></div></> : <div id="inspector-relationship" data-testid="inspector-relationship"><h4>Relationship</h4><dl className="detail-list"><div><dt>Kind</dt><dd>{kindWords(edge!.kind)}</dd></div><div><dt>Source label</dt><dd>{sourceNode?.label ?? "Not reported"}</dd></div><div><dt>Source kind</dt><dd>{sourceNode ? kindWords(sourceNode.kind) : "Not reported"}</dd></div><div><dt>Target label</dt><dd>{targetNode?.label ?? "Not reported"}</dd></div><div><dt>Target kind</dt><dd>{targetNode ? kindWords(targetNode.kind) : "Not reported"}</dd></div><div><dt>Confidence</dt><dd>{confidence}</dd></div></dl></div>}
+    {sourceLocation && <div className="source-copy-actions"><button className="secondary-action" data-testid="copy-source-location" onClick={() => { void copySource(); }}>Copy source location</button><span className="source-copy-status" data-testid="copy-source-status" role="status" aria-live="polite">{copyStatus === "copied" ? "Copied source location." : copyStatus === "failed" ? "Copy unavailable." : ""}</span></div>}
     <div id="inspector-evidence" data-testid="inspector-evidence"><h4>Evidence</h4><dl className="detail-list"><div><dt>Summary</dt><dd>{summary || "No evidence records."}</dd></div>{records.map((record, index) => <div key={`${record.kind}-${index}`}><dt>{`Evidence record ${index + 1}`}</dt><dd>{`Kind: ${evidenceLabel[record.kind]}; Adapter: ${record.adapter}; Adapter version: ${record.adapterVersion}; Basis: ${record.reason ? kindWords(record.reason) : "Not reported"}`}</dd></div>)}</dl></div>
     <div id="inspector-metadata" data-testid="inspector-metadata"><h4>Metadata</h4><dl className="detail-list"><Metadata kind={item.kind} value={item.metadata} /></dl></div>
     <div id="inspector-diagnostics" data-testid="inspector-diagnostics"><h4>Diagnostics</h4><dl className="detail-list"><div><dt>Diagnostics</dt><dd>{diagnostics.length ? diagnostics.map((diagnostic) => <span key={diagnostic.id}>{`Severity: ${diagnostic.severity}; Code: ${kindWords(diagnostic.code)}; Message: ${diagnostic.message}`}</span>) : "No diagnostics for this selection."}</dd></div></dl></div>
