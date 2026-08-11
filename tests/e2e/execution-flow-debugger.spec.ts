@@ -497,6 +497,60 @@ test("keeps the flow overview legible at mobile width", async ({ page }) => {
   expect(geometry.right).toBeLessThanOrEqual(geometry.viewportWidth);
 });
 
+test("copies only repository-relative source context from the Inspector", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "https://127.0.0.1:8444" });
+  const graph = {
+    ...staticGraph,
+    nodes: staticGraph.nodes.map((node) => node.id === byLabel.Home.id
+      ? { ...node, source: { repository: "web", path: "src/home.tsx", line: 17, symbol: "HomeView" } }
+      : node)
+  };
+  await mock(page, { graph });
+  await page.goto("/");
+  await graphNode(page, "Home").click();
+
+  const source = page.getByTestId("inspector-source");
+  await expect(source.getByText("web", { exact: true })).toBeVisible();
+  await expect(source.getByText("src/home.tsx", { exact: true })).toBeVisible();
+  await expect(source.getByText("17", { exact: true })).toBeVisible();
+  await expect(source.getByText("HomeView", { exact: true })).toBeVisible();
+  const copy = page.getByTestId("copy-source-location");
+  await expect(copy).toBeVisible();
+  await copy.click();
+  await expect(page.getByTestId("copy-source-status")).toHaveText("Copied source location.");
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toBe("src/home.tsx:17:HomeView");
+  for (const forbidden of ["/Users/", "file://", "http", "capability", "token"]) {
+    expect(copied).not.toContain(forbidden);
+  }
+});
+
+test("keeps source copy unavailable for edges and boundary nodes", async ({ page }) => {
+  await mock(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Expand all" }).click();
+  const copy = page.getByTestId("copy-source-location");
+
+  await graphNode(page, "Home").click();
+  await expect(copy).toBeVisible();
+
+  const renders = edges.find((candidate) => candidate.source === byLabel["/"].id && candidate.target === byLabel.Home.id)!;
+  const edgeRow = page.getByTestId(`graph-edge-${renders.id}`);
+  await edgeRow.click();
+  await expect(edgeRow).toHaveAttribute("aria-pressed", "true");
+  await expect(copy).toHaveCount(0);
+
+  for (const label of ["GET https://api.example.test:443", "Unresolved"] as const) {
+    const boundary = graphNode(page, label);
+    await boundary.click();
+    await expect(boundary).toHaveAttribute("aria-pressed", "true");
+    await expect(copy).toHaveCount(0);
+  }
+
+  await graphNode(page, "Home").click();
+  await expect(copy).toBeVisible();
+});
+
 test("independently tolerates health failure and rejects malformed config, envelopes, and transport", async ({ page }) => {
   await mock(page);
   await page.route("**/api/health", (route) => route.abort("failed"));

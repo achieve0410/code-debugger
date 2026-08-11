@@ -891,6 +891,20 @@ input:disabled {
   display: block;
 }
 
+.source-copy-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.source-copy-status {
+  color: var(--wb-text-muted);
+  font-size: 0.8125rem;
+  min-height: 1.25rem;
+}
+
 
 .action-center {
   border-top: 1px solid var(--wb-border);
@@ -1024,6 +1038,15 @@ input:disabled {
   }
 
   .graph-empty-filtered .secondary-action {
+    width: 100%;
+  }
+
+  .source-copy-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .source-copy-actions .secondary-action {
     width: 100%;
   }
 
