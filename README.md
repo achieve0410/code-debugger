@@ -133,6 +133,20 @@ root:
 ./scripts/run.sh --repo /absolute/path/to/frontend --repo /absolute/path/to/backend
 ```
 
+If a Nuxt `useAxios` wrapper receives relative endpoint paths, provide its
+local API base explicitly so static matching can join those calls to Django:
+
+```sh
+./scripts/run.sh \
+  --repo /absolute/path/to/frontend \
+  --repo /absolute/path/to/backend \
+  --base-path /app/v1
+```
+
+Static relative-URL resolution requires exactly one safe local base path.
+Without one, or with multiple possible bases, those calls remain `Unresolved`
+rather than being suffix-matched to a guessed backend route.
+
 Relative roots resolve only inside this workspace. External roots require an
 explicit absolute directory. Root symlinks, traversal, credential directories
 (`.ssh`, `.aws`, `.config`), and traversed symlinks are rejected/pruned.

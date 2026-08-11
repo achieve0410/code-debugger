@@ -379,8 +379,31 @@ test("accepts unresolved candidates from GET and Analyze, but rejects forged con
     await expect(page.getByTestId("graph-state-invalid"), `${residue} GET residue`).toBeVisible();
   }
 });
+test("accepts long CamelCase source identifiers as structural graph fields", async ({ page }) => {
+  const longIdentifier = "RenderMemberPermissionConfigurationDashboard";
+  const graph = {
+    ...staticGraph,
+    nodes: staticGraph.nodes.map((node) => node.kind === "django_view"
+      ? {
+          ...node,
+          label: longIdentifier,
+          source: { ...node.source, symbol: longIdentifier },
+          metadata: {
+            ...node.metadata,
+            pythonQualifiedName: `app.views.${longIdentifier}`,
+          },
+        }
+      : node),
+  };
+  await mock(page, { graph, analyzeGraph: graph });
+  await page.goto("/");
+  await expect(page.getByTestId("graph-canvas")).toBeVisible();
+  await page.getByTestId("analyze-button").click();
+  await expect(page.getByTestId("graph-canvas")).toBeVisible();
+  await expect(page.getByTestId("graph-message")).toHaveCount(0);
+});
 test("accepts only canonical display roots and matching external repository labels", async ({ page }) => {
-  for (const displayRoot of [".", "packages/web", "packages/web-client_2", "external:web"]) {
+  for (const displayRoot of [".", "packages/web", "packages/web-client_2", "src/apps/cdn/cost/stores/useCDNCostStore", "external:web"]) {
     await mock(page, { activeConfig: { ...config(), repositories: [{ namespace: "web", displayRoot }], repoRoots: [displayRoot] } }); await page.goto("/");
     await expect(page.getByTestId("graph-canvas")).toBeVisible();
   }
@@ -411,6 +434,69 @@ test("uses an exact GraphSnapshotV2 static fixture with stable workbench landmar
   expect(await page.evaluate(() => `${JSON.stringify(localStorage)}${JSON.stringify(sessionStorage)}`)).not.toContain(capability);
 });
 
+test("shows a compact visible-flow overview with topology and evidence counts", async ({ page }) => {
+  await mock(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Expand all" }).click();
+
+  const overview = page.getByTestId("flow-overview");
+  await expect(overview).toBeVisible();
+  await expect(page.getByTestId("flow-overview-route")).toHaveText("/");
+  await expect(page.getByTestId("flow-overview-nodes")).toHaveText("13 nodes");
+  await expect(page.getByTestId("flow-overview-edges")).toHaveText("12 edges");
+  for (const [layer, count] of [["frontend", 4], ["http", 2], ["backend", 3], ["data", 2], ["external", 1], ["unresolved", 1]] as const) {
+    await expect(page.getByTestId(`flow-overview-layer-${layer}`)).toHaveText(`${layer} ${count}`);
+  }
+  await expect(page.getByTestId("flow-overview-evidence-observed")).toHaveText("Observed 0");
+  await expect(page.getByTestId("flow-overview-evidence-inferred")).toHaveText("Inferred 23");
+  await expect(page.getByTestId("flow-overview-evidence-unresolved")).toHaveText("Unresolved 2");
+});
+
+test("explains empty filtered graphs and restores them in one action", async ({ page }) => {
+  await mock(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Expand all" }).click();
+
+  const selectedRoute = page.getByTestId("route-option-/");
+  await expect(selectedRoute).toHaveAttribute("aria-pressed", "true");
+  for (const kind of ["observed", "inferred", "unresolved"] as const) {
+    await page.getByTestId(`evidence-filter-${kind}`).getByRole("checkbox").uncheck();
+  }
+
+  await expect(page.getByTestId("graph-empty-filtered")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "No visible graph entities" })).toBeVisible();
+  await expect(page.getByTestId("graph-canvas")).toHaveCount(0);
+  await expect(selectedRoute).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByRole("button", { name: "Reset graph filters" }).click();
+  await expect(page.getByTestId("graph-canvas")).toBeVisible();
+  await expect(page.getByTestId("visible-node-count")).toHaveText("13 nodes");
+  await expect(selectedRoute).toHaveAttribute("aria-pressed", "true");
+  for (const kind of ["observed", "inferred", "unresolved"] as const) {
+    await expect(page.getByTestId(`evidence-filter-${kind}`).getByRole("checkbox")).toBeChecked();
+  }
+});
+
+test("keeps the flow overview legible at mobile width", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mock(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Expand all" }).click();
+
+  const overview = page.getByTestId("flow-overview");
+  await expect(overview).toBeVisible();
+  await expect(overview).toHaveAttribute("aria-label", "Visible flow overview");
+  await expect(page.getByRole("heading", { name: "Visible topology" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Evidence quality" })).toBeVisible();
+  const geometry = await overview.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, left: rect.left, right: rect.right, viewportWidth: innerWidth };
+  });
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
+  expect(geometry.left).toBeGreaterThanOrEqual(0);
+  expect(geometry.right).toBeLessThanOrEqual(geometry.viewportWidth);
+});
+
 test("independently tolerates health failure and rejects malformed config, envelopes, and transport", async ({ page }) => {
   await mock(page);
   await page.route("**/api/health", (route) => route.abort("failed"));
@@ -439,6 +525,27 @@ test("accepts only exact server error envelopes", async ({ page }) => {
   await page.reload(); await expect(page.getByTestId("graph-message")).toContainText("protocol_unavailable");
   await page.unroute("**/api/graph"); await page.route("**/api/graph", (route) => route.fulfill({ status: 409, json: { error: "snapshot_incompatible", code: "obsolete", action: "reanalyze" } }));
   await page.reload(); await expect(page.getByTestId("graph-message")).toContainText("protocol_unavailable");
+});
+test("rejects NFKC-normalized secret graph fields", async ({ page }) => {
+  await mock(page, { graph: { ...staticGraph, project: "ｔｏｋｅｎ=not-safe" } });
+  await page.goto("/");
+  await expect(page.getByTestId("graph-state-invalid")).toBeVisible();
+});
+test("rejects non-NFC decoded repository paths", async ({ page }) => {
+  const path = "cafe%CC%81.py";
+  const replacementId = nodeId(path, byLabel.items.kind, byLabel.items.identityKey);
+  const graph = {
+    ...staticGraph,
+    nodes: staticGraph.nodes.map((node) => node.id === byLabel.items.id ? { ...node, id: replacementId, source: { ...node.source, path } } : node).sort((left, right) => left.id.localeCompare(right.id)),
+    edges: staticGraph.edges.map((item) => {
+      const source = item.source === byLabel.items.id ? replacementId : item.source;
+      const target = item.target === byLabel.items.id ? replacementId : item.target;
+      return source === item.source && target === item.target ? item : { ...item, id: edgeId(source, target, item.kind), source, target };
+    }).sort((left, right) => left.id.localeCompare(right.id))
+  };
+  await mock(page, { graph });
+  await page.goto("/");
+  await expect(page.getByTestId("graph-state-invalid")).toBeVisible();
 });
 test("rejects static runtime material and malformed canonical graph fields", async ({ page }) => {
   const runtimeDiagnostic = { id: `d_${digest(JSON.stringify("runtime_capture_empty"), JSON.stringify("info"), JSON.stringify("The selected runtime capture contains no events."), "null", "null", "null", "null", "null", "null")}`, code: "runtime_capture_empty", severity: "info", message: "The selected runtime capture contains no events." };

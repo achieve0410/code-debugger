@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from kg_debugger.adapters.django.analyzer import analyze_django
+from kg_debugger.graph.merge import canonicalize_fragment
 
 
 class DjangoAnalyzerTests(unittest.TestCase):
@@ -35,6 +36,41 @@ class DjangoAnalyzerTests(unittest.TestCase):
             views = [node for node in fragment["nodes"] if node["kind"] == "django_view"]
             self.assertEqual(views[0]["metadata"]["pythonQualifiedName"], "app.views.detail")
 
+    def test_long_camelcase_view_name_is_not_treated_as_secret(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write(root, "manage.py", "")
+            self.write(root, "app/__init__.py", "")
+            self.write(
+                root,
+                "app/models.py",
+                "from django.db import models\nclass Member(models.Model): pass\n",
+            )
+            self.write(
+                root,
+                "app/views.py",
+                "from .models import Member\n"
+                "def RenderMemberPermissionConfigurationDashboard(request):\n"
+                "    return Member.objects.filter()\n",
+            )
+            self.write(
+                root,
+                "app/urls.py",
+                "from django.urls import path\n"
+                "from .views import RenderMemberPermissionConfigurationDashboard\n"
+                "urlpatterns = [path('members/', RenderMemberPermissionConfigurationDashboard)]\n",
+            )
+
+            fragment = analyze_django(root, "repo")
+            canonical = canonicalize_fragment(fragment)
+
+            self.assertTrue(
+                any(
+                    node.kind == "django_view"
+                    for node in canonical.snapshot.nodes
+                )
+            )
+
     def test_repeated_calls_emit_one_canonical_edge(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -46,6 +82,46 @@ class DjangoAnalyzerTests(unittest.TestCase):
             fragment = analyze_django(root, "repo")
             invokes = [edge for edge in fragment["edges"] if edge["kind"] == "invokes"]
             self.assertEqual(len(invokes), 1)
+
+    def test_recursive_helper_omits_canonical_self_invocation(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write(root, "manage.py", "")
+            self.write(root, "app/__init__.py", "")
+            self.write(
+                root,
+                "app/views.py",
+                "def recursive():\n    return recursive()\n"
+                "def detail(request):\n    return recursive()\n",
+            )
+            self.write(
+                root,
+                "app/urls.py",
+                "from django.urls import path\n"
+                "from .views import detail\n"
+                "urlpatterns = [path('items/', detail)]\n",
+            )
+
+            fragment = analyze_django(root, "repo")
+            self.assertTrue(
+                any(edge["kind"] == "invokes" for edge in fragment["edges"])
+            )
+            self.assertFalse(
+                any(
+                    edge["kind"] == "invokes"
+                    and edge["source"] == edge["target"]
+                    for edge in fragment["edges"]
+                )
+            )
+            snapshot = canonicalize_fragment(fragment).snapshot
+            nodes = {node.id: node for node in snapshot.nodes}
+            invocation_labels = {
+                (nodes[edge.source].label, nodes[edge.target].label)
+                for edge in snapshot.edges
+                if edge.kind == "invokes"
+            }
+            self.assertIn(("detail", "recursive"), invocation_labels)
+            self.assertNotIn(("recursive", "recursive"), invocation_labels)
 
     def test_duplicate_paths_keep_the_first_django_match(self) -> None:
         with TemporaryDirectory() as directory:
@@ -64,16 +140,136 @@ class DjangoAnalyzerTests(unittest.TestCase):
                 and node["identity"].endswith("urlpatterns:0:GET")
             )
             self.assertEqual(routes[0]["key"], first_url["key"])
-    def test_unproven_package_chain_does_not_create_qualified_name(self) -> None:
+    def test_exact_namespace_package_chain_is_proven(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
             self.write(root, "manage.py", "")
-            self.write(root, "broken/views.py", "def detail(request): pass\n")
-            self.write(root, "urls.py", "from django.urls import path\nfrom broken.views import detail\nurlpatterns = [path('x/', detail)]\n")
+            self.write(root, "namespace/views.py", "def detail(request): pass\n")
+            self.write(root, "urls.py", "from django.urls import path\nfrom namespace.views import detail\nurlpatterns = [path('x/', detail)]\n")
+            fragment = analyze_django(root, "repo")
+            self.assertTrue(any(node["kind"] == "django_view" for node in fragment["nodes"]))
+            self.assertFalse(any(item["code"].startswith("python_import_") for item in fragment["diagnostics"]))
+
+    def test_nearest_manage_root_anchors_namespace_relative_imports(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write(root, "embedded/manage.py", "")
+            self.write(root, "embedded/namespace/views.py", "def detail(request): pass\n")
+            self.write(root, "embedded/namespace/urls.py", "from django.urls import path\nfrom .views import detail\nurlpatterns = [path('x/', detail)]\n")
+            fragment = analyze_django(root, "repo")
+            self.assertTrue(any(node["kind"] == "django_view" for node in fragment["nodes"]))
+            self.assertFalse(any(item["code"].startswith("python_import_") for item in fragment["diagnostics"]))
+
+    def test_missing_module_chain_remains_unresolved(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write(root, "manage.py", "")
+            self.write(root, "missing/__init__.py", "")
+            self.write(root, "urls.py", "from django.urls import path\nfrom missing.views import detail\nurlpatterns = [path('x/', detail)]\n")
             fragment = analyze_django(root, "repo")
             self.assertFalse(any(node["kind"] == "django_view" for node in fragment["nodes"]))
             self.assertTrue(any(node["kind"] == "unresolved_target" for node in fragment["nodes"]))
             self.assertTrue(any(item["code"] == "python_import_module_unresolved" for item in fragment["diagnostics"]))
+
+    def test_imported_named_urlpattern_list_is_traversed_exactly(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write(root, "manage.py", "")
+            self.write(root, "config/__init__.py", "")
+            self.write(
+                root,
+                "config/urls.py",
+                "from django.urls import include, path\n"
+                "from app.urls import public_patterns\n"
+                "urlpatterns = [path('api/', include((public_patterns, 'app')))]\n",
+            )
+            self.write(root, "app/__init__.py", "")
+            self.write(
+                root,
+                "app/urls.py",
+                "from django.urls import path\n"
+                "from .views import hidden, visible\n"
+                "public_patterns = [path('visible/', visible)]\n"
+                "private_patterns = [path('hidden/', hidden)]\n",
+            )
+            self.write(
+                root,
+                "app/views.py",
+                "def visible(request):\n    return None\n"
+                "def hidden(request):\n    return None\n",
+            )
+
+            graph = analyze_django(root, "backend")
+            paths = {route["path"] for route in graph["routes"]}
+            self.assertIn("/api/visible/", paths)
+            self.assertNotIn("/api/hidden/", paths)
+
+    def test_literal_root_urlconf_selects_non_urls_module(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write(root, "manage.py", "")
+            self.write(root, "config/__init__.py", "")
+            self.write(root, "config/routes/__init__.py", "")
+            self.write(
+                root,
+                "config/settings.py",
+                "ROOT_URLCONF = 'config.routes.base'\n",
+            )
+            self.write(
+                root,
+                "config/routes/base.py",
+                "from django.urls import include, path\n"
+                "from app.urls import public_patterns\n"
+                "urlpatterns = [path('api/', include((public_patterns, 'app')))]\n",
+            )
+            self.write(root, "app/__init__.py", "")
+            self.write(
+                root,
+                "app/urls.py",
+                "from django.urls import path\n"
+                "from .views import hidden, visible\n"
+                "public_patterns = [path('visible/', visible)]\n"
+                "urlpatterns = [path('hidden/', hidden)]\n",
+            )
+            self.write(
+                root,
+                "app/views.py",
+                "def visible(request):\n    return None\n"
+                "def hidden(request):\n    return None\n",
+            )
+
+            graph = analyze_django(root, "backend")
+            paths = {route["path"] for route in graph["routes"]}
+            self.assertIn("/api/visible/", paths)
+            self.assertNotIn("/hidden/", paths)
+
+    def test_unproven_root_urlconf_does_not_fall_back_to_urls_files(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write(root, "manage.py", "")
+            self.write(root, "config/__init__.py", "")
+            self.write(
+                root,
+                "config/settings.py",
+                "ROOT_URLCONF = choose_root()\n",
+            )
+            self.write(root, "app/__init__.py", "")
+            self.write(
+                root,
+                "app/urls.py",
+                "from django.urls import path\n"
+                "from .views import hidden\n"
+                "urlpatterns = [path('hidden/', hidden)]\n",
+            )
+            self.write(root, "app/views.py", "def hidden(request):\n    return None\n")
+
+            graph = analyze_django(root, "backend")
+
+            self.assertEqual(graph["routes"], [])
+            self.assertFalse(
+                any(node["kind"] == "django_url_pattern" for node in graph["nodes"])
+            )
+
     def test_module_import_view_helper_query_model_and_external_boundary(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -211,11 +407,14 @@ urlpatterns = [path('a//b/', detail), path('dot/../x/', detail), path('space /',
             self.write(root, "app/__init__.py", "")
             self.write(root, "app/views.py", "def detail(request): return None\n")
             self.write(root, "app/urls.py", "from django.urls import path\nfrom .views import detail\nurlpatterns = [path('ok/', detail)]\n")
-            for directory_name in (".aws", ".config", ".ssh"):
+            for directory_name in (".agents", ".aws", ".config", ".ssh"):
                 self.write(root, f"nested/{directory_name}/manage.py", "")
                 self.write(root, f"nested/{directory_name}/leak.py", "def leaked(): pass\n")
+            self.write(root, "nested/.agents/app/__init__.py", "")
+            self.write(root, "nested/.agents/app/views.py", "def hidden(request): return None\n")
+            self.write(root, "nested/.agents/app/urls.py", "from django.urls import path\nfrom .views import hidden\nurlpatterns = [path('hidden/', hidden)]\n")
             fragment = analyze_django(root, "repo")
-            self.assertFalse(any(any(part in node["source"]["path"].split("/") for part in {".aws", ".config", ".ssh"}) for node in fragment["nodes"]))
+            self.assertFalse(any(any(part in node["source"]["path"].split("/") for part in {".agents", ".aws", ".config", ".ssh"}) for node in fragment["nodes"]))
             self.assertEqual([node["metadata"]["declaredPath"] for node in fragment["nodes"] if node["kind"] == "django_url_pattern"], ["/ok/"])
 
     def test_ipv6_external_boundary_uses_bracketed_display_host(self) -> None:

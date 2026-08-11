@@ -9,14 +9,16 @@ const repoRoot = path.resolve(import.meta.dirname, "../..");
 const analyzer = path.join(repoRoot, "analyzers/index.mjs");
 const fixtureRoot = path.join(repoRoot, "fixtures/nuxt-django");
 
-async function runFrontendAnalyzer() {
-  const { stdout } = await execFileAsync(process.execPath, [
+async function runFrontendAnalyzer(basePaths = []) {
+  const args = [
     analyzer,
     "--repository",
     "fixture",
     "--frontend-only",
-    fixtureRoot,
-  ], {
+  ];
+  for (const basePath of basePaths) args.push("--base-path", basePath);
+  args.push(fixtureRoot);
+  const { stdout } = await execFileAsync(process.execPath, args, {
     cwd: repoRoot,
     maxBuffer: 1024 * 1024 * 8,
   });
@@ -113,6 +115,116 @@ test("NuxtLink and navigateTo targets link to file-based routes", async () => {
   assert.ok(indexPage && detailPage && ordersRoute && indexRoute);
   assert.ok(hasEdge(fragment, indexPage, "navigates_to", ordersRoute));
   assert.ok(hasEdge(fragment, detailPage, "navigates_to", indexRoute));
+});
+
+test("Nuxt route wrappers reach Page-suffixed application components and their calls", async () => {
+  const fragment = await runFrontendAnalyzer();
+  const route = nodeFor(fragment, "frontend_route", {
+    framework: "nuxt", declaredPath: "/network/acl",
+  });
+  const wrapper = nodeFor(fragment, "component", {}, "frontend/pages/network/acl.vue");
+  const page = nodeFor(
+    fragment,
+    "component",
+    {},
+    "frontend/src/apps/network/acl/pages/AclPage.vue",
+  );
+  const event = nodeFor(
+    fragment,
+    "ui_event",
+    {},
+    "frontend/src/apps/network/acl/pages/AclPage.vue",
+  );
+  const handler = fragment.nodes.find(
+    (node) => node.kind === "function"
+      && node.label === "loadAcl"
+      && node.source.path === "frontend/src/apps/network/acl/pages/AclPage.vue",
+  );
+  const request = fragment.nodes.find(
+    (node) => node.kind === "http_call"
+      && node.metadata.method === "GET"
+      && node.source.path === "frontend/src/apps/network/acl/pages/AclPage.vue",
+  );
+  const classifiedPage = fragment.nodes.find(
+    (node) => node.label === "AclPage"
+      && node.source.path === "frontend/src/apps/network/acl/pages/AclPage.vue",
+  );
+
+  assert.ok(route, "missing /network/acl route");
+  assert.ok(wrapper, "missing Nuxt route wrapper component");
+  assert.ok(
+    page,
+    `AclPage must be a component, received ${classifiedPage?.kind ?? "missing"}`,
+  );
+  assert.ok(event, "missing AclPage click event");
+  assert.ok(handler, "missing loadAcl handler");
+  assert.ok(request, "missing loadAcl GET request");
+  assert.ok(hasEdge(fragment, route, "renders", wrapper));
+  assert.ok(hasEdge(fragment, wrapper, "renders", page));
+  assert.ok(hasEdge(fragment, page, "contains", event));
+  assert.ok(hasEdge(fragment, event, "handles", handler));
+  assert.ok(hasEdge(fragment, handler, "calls", request));
+});
+
+test("Nuxt useAxios relative URLs require one explicit configured base", async () => {
+  const withoutBase = await runFrontendAnalyzer();
+  const unresolvedRequest = nodeFor(
+    withoutBase,
+    "http_call",
+    { method: "GET", normalizedPath: "/{u0}", urlResolution: "unbounded" },
+    "frontend/src/apps/network/acl/pages/AclPage.vue",
+  );
+  assert.ok(unresolvedRequest);
+  assert.equal(
+    nodeFor(
+      withoutBase,
+      "http_call",
+      { method: "GET", normalizedPath: "/app/v1/acl_policy/" },
+      "frontend/src/apps/network/acl/pages/AclPage.vue",
+    ),
+    undefined,
+  );
+
+  const withBase = await runFrontendAnalyzer(["/app/v1"]);
+  const configuredRequest = nodeFor(
+    withBase,
+    "http_call",
+    {
+      method: "GET",
+      normalizedPath: "/app/v1/acl_policy/",
+      urlResolution: "literal",
+      endpointId: "GET /app/v1/acl_policy/",
+    },
+    "frontend/src/apps/network/acl/pages/AclPage.vue",
+  );
+  assert.ok(configuredRequest);
+
+  const withAmbiguousBases = await runFrontendAnalyzer(["/app/v1", "/alternate"]);
+  const ambiguousRequest = nodeFor(
+    withAmbiguousBases,
+    "http_call",
+    { method: "GET", normalizedPath: "/{u0}", urlResolution: "unbounded" },
+    "frontend/src/apps/network/acl/pages/AclPage.vue",
+  );
+  assert.ok(ambiguousRequest);
+  assert.equal(
+    nodeFor(
+      withAmbiguousBases,
+      "http_call",
+      { method: "GET", normalizedPath: "/app/v1/acl_policy/" },
+      "frontend/src/apps/network/acl/pages/AclPage.vue",
+    ),
+    undefined,
+  );
+  assert.equal(
+    nodeFor(
+      withAmbiguousBases,
+      "http_call",
+      { method: "GET", normalizedPath: "/alternate/acl_policy/" },
+      "frontend/src/apps/network/acl/pages/AclPage.vue",
+    ),
+    undefined,
+  );
 });
 
 test("Nuxt server/api routes are terminal unresolved boundaries, never traversed", async () => {

@@ -21,6 +21,7 @@ import { collectHttpUrlSymbols, collectPayloadHints, handleJsCall } from "./http
 export function collectVue(files, builder, options = {}) {
   const framework = options.framework ?? "vue";
   const scriptSetupTopLevel = options.scriptSetupTopLevel ?? false;
+  const basePaths = options.basePaths ?? [];
   const urlSymbols = collectHttpUrlSymbols(files, builder);
   const vueFiles = files.filter((file) => path.extname(file) === ".vue");
   const scriptEntries = [];
@@ -49,7 +50,7 @@ export function collectVue(files, builder, options = {}) {
     componentCandidates.set(name, candidates);
     builder.addNode({
       key,
-      kind: componentKind(name),
+      kind: framework === "nuxt" ? "component" : componentKind(name),
       label: name,
       source,
       confidence: 0.88,
@@ -140,7 +141,17 @@ export function collectVue(files, builder, options = {}) {
       const functionKey = `function:${relPath(builder.root, entry.file)}:${fn.name}`;
       traverseFunctionBody(fn, (node) => {
         if (ts.isCallExpression(node)) {
-          handleJsCall(node, entry, builder, framework, functionKey, urlSymbols, payloadHints, fn);
+          handleJsCall(
+            node,
+            entry,
+            builder,
+            framework,
+            functionKey,
+            urlSymbols,
+            payloadHints,
+            fn,
+            { basePaths },
+          );
           linkKnownJsFunctionCall(node, entry, builder, functionKey, functionCandidates, framework);
         }
       });
@@ -161,7 +172,17 @@ export function collectVue(files, builder, options = {}) {
       if (!builder.nodes.has(componentKey)) continue;
       traverseFunctionBody({ bodyNode: entry.sourceFile }, (node) => {
         if (ts.isCallExpression(node)) {
-          handleJsCall(node, entry, builder, framework, componentKey, urlSymbols, payloadHints, undefined);
+          handleJsCall(
+            node,
+            entry,
+            builder,
+            framework,
+            componentKey,
+            urlSymbols,
+            payloadHints,
+            undefined,
+            { basePaths },
+          );
           linkKnownJsFunctionCall(node, entry, builder, componentKey, functionCandidates, framework);
         }
       });
@@ -322,8 +343,9 @@ function collectVueTemplate(file, fullText, template, componentKey, components, 
   const tagRegex = /<([A-Z][A-Za-z0-9]*)(?:\s|>|\/)/gu;
   for (const match of template.matchAll(tagRegex)) {
     const name = match[1];
-    if (components.has(name) && components.get(name) !== componentKey) {
-      builder.addEdge({ source: componentKey, target: components.get(name), kind: "renders", confidence: 0.8, metadata: { framework } });
+    const target = components.get(name);
+    if (target && target !== componentKey && builder.nodes.get(target)?.kind !== "page") {
+      builder.addEdge({ source: componentKey, target, kind: "renders", confidence: 0.8, metadata: { framework } });
     }
   }
 

@@ -157,26 +157,27 @@
       "summary": {
         "routes": [
           "route:nuxt:/",
+          "route:nuxt:/network/acl",
           "route:nuxt:/orders",
           "route:nuxt:/orders/:id"
         ],
         "nodeKinds": {
-          "component": 4,
-          "frontend_route": 3,
-          "function": 3,
-          "http_call": 6,
+          "component": 6,
+          "frontend_route": 4,
+          "function": 4,
+          "http_call": 7,
           "request_payload": 1,
-          "ui_event": 3,
-          "unresolved_target": 6
+          "ui_event": 4,
+          "unresolved_target": 7
         },
         "edgeKinds": {
-          "calls": 6,
+          "calls": 7,
           "carries": 1,
-          "contains": 3,
-          "handles": 3,
+          "contains": 4,
+          "handles": 4,
           "navigates_to": 2,
-          "renders": 3,
-          "resolves_to": 6
+          "renders": 5,
+          "resolves_to": 7
         },
         "diagnostics": [],
         "boundedUrlProofs": 0

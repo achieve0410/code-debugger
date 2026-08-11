@@ -57,6 +57,7 @@ class RuntimeOverlayProtocolTests(unittest.TestCase):
                 repository_set_id="a" * 64,
                 repository_manifest=[{"namespace": "repo"}],
                 project="repo",
+                endpoint=EndpointConfig(),
             )
             completed = SimpleNamespace(returncode=0, stdout='{"repository":"repo"}')
             with patch(
@@ -96,6 +97,7 @@ class RuntimeOverlayProtocolTests(unittest.TestCase):
                 repository_set_id="a" * 64,
                 repository_manifest=[{"namespace": "repo"}],
                 project="repo",
+                endpoint=EndpointConfig(),
             )
             completed = SimpleNamespace(returncode=0, stdout=b"\xff")
             with patch(
@@ -108,6 +110,55 @@ class RuntimeOverlayProtocolTests(unittest.TestCase):
             self.assertEqual(
                 [diagnostic["code"] for diagnostic in diagnostics],
                 ["frontend_analyzer_invalid_output"],
+            )
+
+    def test_frontend_analyzer_receives_configured_base_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            analyzer = workspace / "analyzers" / "index.mjs"
+            node = workspace / "venv" / "node24.14.1" / "bin" / "node"
+            analyzer.parent.mkdir()
+            node.parent.mkdir(parents=True)
+            analyzer.touch()
+            node.touch()
+            orchestrator = object.__new__(Orchestrator)
+            orchestrator.config = SimpleNamespace(
+                workspace_root=workspace,
+                repository_set_id="a" * 64,
+                repository_manifest=[{"namespace": "repo"}],
+                project="repo",
+                endpoint=EndpointConfig(base_paths=("/app/v1", "/api/v1")),
+            )
+            completed = SimpleNamespace(returncode=0, stdout='{"repository":"repo"}')
+            fragment = object()
+            with patch.dict(
+                "kg_debugger.orchestrator.os.environ",
+                {"KG_DEBUGGER_NODE": ""},
+            ), patch(
+                "kg_debugger.orchestrator.subprocess.run", return_value=completed
+            ) as run, patch(
+                "kg_debugger.orchestrator.canonicalize_fragment",
+                return_value=fragment,
+            ):
+                fragments, diagnostics = orchestrator._run_frontend_analyzer(
+                    {workspace: "repo"}
+                )
+
+            self.assertEqual(fragments, [fragment])
+            self.assertEqual(diagnostics, [])
+            self.assertEqual(
+                run.call_args.args[0],
+                [
+                    str(node),
+                    str(analyzer),
+                    "--repository",
+                    "repo",
+                    "--base-path",
+                    "/app/v1",
+                    "--base-path",
+                    "/api/v1",
+                    str(workspace),
+                ],
             )
     def _static_snapshot(
         self, *, include_view_edge: bool = True, ambiguous_url: bool = False

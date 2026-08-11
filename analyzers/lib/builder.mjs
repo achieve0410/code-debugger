@@ -25,7 +25,7 @@ function minimizedNodeMetadata(kind, metadata) {
   const frameworkOwners = owners(metadata);
   if (kind === "frontend_route") return { framework: metadata.framework, declaredPath: metadata.declaredPath ?? metadata.path };
   if (["page", "component", "function"].includes(kind)) return { frameworkOwners };
-  if (kind === "ui_event") return { frameworkOwners, eventKind: String(metadata.event ?? "event").replace(/^on/u, "").toLowerCase() || "event", elementKind: String(metadata.element ?? "element").toLowerCase(), modifiers: [...new Set(metadata.modifiers ?? [])].sort() };
+  if (kind === "ui_event") return { frameworkOwners, eventKind: String(metadata.event ?? "event").replace(/^on/u, "").toLowerCase().replace(/:/gu, ".") || "event", elementKind: String(metadata.element ?? "element").toLowerCase(), modifiers: [...new Set(metadata.modifiers ?? [])].sort() };
   if (kind === "unresolved_target") return { reasonCode: "dynamic_target_unproven" };
   if (kind === "external_service") return { method: metadata.method, scheme: metadata.scheme, host: metadata.host, ...(metadata.port ? { port: metadata.port } : {}), pathPresent: Boolean(metadata.pathPresent), queryFieldCount: metadata.queryFieldCount ?? 0, hasSensitiveQuery: Boolean(metadata.hasSensitiveQuery), boundaryOnly: true };
   if (kind === "http_call") return { method: metadata.method, urlResolution: metadata.urlResolution ?? "unbounded", normalizedPath: metadata.normalizedPath ?? "/{u0}", ...(metadata.endpointId ? { endpointId: metadata.endpointId } : {}), queryFieldCount: metadata.queryFieldCount ?? 0, hasSensitiveQuery: Boolean(metadata.hasSensitiveQuery) };
