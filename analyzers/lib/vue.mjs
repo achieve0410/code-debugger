@@ -34,10 +34,9 @@ export function collectVue(files, builder, options = {}) {
     let parsed;
     try {
       parsed = parseSfc(text, { filename: file });
-    } catch (error) {
+    } catch {
       builder.addDiagnostic({
-        code: "file_skipped",
-        message: `Vue single-file component could not be parsed: ${error?.name ?? "error"}`,
+        code: "unsupported_syntax",
         source: { path: relPath(builder.root, file) },
       });
       continue;

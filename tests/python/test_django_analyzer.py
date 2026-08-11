@@ -140,6 +140,47 @@ class DjangoAnalyzerTests(unittest.TestCase):
                 and node["identity"].endswith("urlpatterns:0:GET")
             )
             self.assertEqual(routes[0]["key"], first_url["key"])
+
+    def test_duplicate_paths_shadow_later_method_specific_views(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.write(root, "manage.py", "")
+            self.write(root, "app/__init__.py", "")
+            self.write(
+                root,
+                "app/views.py",
+                "from django.views.decorators.http import require_GET, require_POST\n"
+                "@require_GET\n"
+                "def first(request): pass\n"
+                "@require_POST\n"
+                "def second(request): pass\n",
+            )
+            self.write(
+                root,
+                "app/urls.py",
+                "from django.urls import path\n"
+                "from .views import first, second\n"
+                "urlpatterns = [path('same/', first), path('same/', second)]\n",
+            )
+
+            fragment = analyze_django(root, "repo")
+            url_nodes = [
+                node
+                for node in fragment["nodes"]
+                if node["kind"] == "django_url_pattern"
+                and node["source"]["path"] == "app/urls.py"
+            ]
+            self.assertEqual(
+                [(node["label"], node["identity"]) for node in url_nodes],
+                [("URL pattern", "url:app/urls.py:urlpatterns:0:GET")],
+            )
+            self.assertFalse(
+                any(
+                    node["kind"] == "django_view" and node["label"] == "second"
+                    for node in fragment["nodes"]
+                )
+            )
+
     def test_exact_namespace_package_chain_is_proven(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

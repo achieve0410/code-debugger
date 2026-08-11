@@ -101,6 +101,7 @@ def analyze_django(
     diagnostics: list[dict[str, Any]] = []
     known: set[str] = set()
     url_endpoints: set[tuple[str, str]] = set()
+    declared_url_patterns: set[str] = set()
 
     def add_node(raw: dict[str, Any]) -> None:
         if raw["key"] not in known:
@@ -407,6 +408,9 @@ def analyze_django(
             add_diagnostic("unresolved_django_url", info)
             return
         declared, normalized, converters = parsed
+        if declared in declared_url_patterns:
+            return
+        declared_url_patterns.add(declared)
         target = resolve_reference(info, _view_expression(view))
         methods = forced_methods or (_view_methods(target[1]) if target else set())
         if not methods:
