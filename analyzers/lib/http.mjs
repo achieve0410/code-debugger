@@ -6,6 +6,7 @@ import {
   createTsSourceFile,
   declarationName,
   expressionName,
+  hasTsParseDiagnostics,
   literalString,
   isNestedFunctionBoundary,
   objectProperties,
@@ -378,7 +379,15 @@ export function collectHttpUrlSymbols(files, builder) {
     .map((file) => {
       const text = readSourceText(file, builder);
       if (text === undefined) return undefined;
-      return { file, text, sourceFile: createTsSourceFile(file, text) };
+      const sourceFile = createTsSourceFile(file, text);
+      if (hasTsParseDiagnostics(sourceFile)) {
+        builder.addDiagnostic({
+          code: "unsupported_syntax",
+          source: { path: relPath(builder.root, file) },
+        });
+        return undefined;
+      }
+      return { file, text, sourceFile };
     })
     .filter(Boolean);
   const declarations = [];

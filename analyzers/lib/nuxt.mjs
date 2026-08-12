@@ -42,6 +42,8 @@ export function collectNuxt(files, builder) {
     for (const file of pageFiles) {
       const routePath = joinNuxtBase(config.baseURL, nuxtRoutePath(path.relative(pagesDir, file)));
       const sourcePath = relPath(builder.root, file);
+      const componentKey = `component:${sourcePath}:${path.basename(file, ".vue")}`;
+      if (!builder.nodes.has(componentKey)) continue;
       const source = { path: sourcePath, line: 1, symbol: "route" };
       if (!isStrictNuxtRoutePath(routePath)) {
         builder.unresolved(
@@ -64,10 +66,7 @@ export function collectNuxt(files, builder) {
           metadata: { generator: "nuxt-pages" },
         });
       }
-      const componentKey = `component:${sourcePath}:${path.basename(file, ".vue")}`;
-      if (builder.nodes.has(componentKey)) {
-        builder.addEdge({ source: key, target: componentKey, kind: "renders", confidence: 0.95, metadata: { framework: "nuxt" } });
-      }
+      builder.addEdge({ source: key, target: componentKey, kind: "renders", confidence: 0.95, metadata: { framework: "nuxt" } });
     }
 
     collectNuxtLinkNavigation(files, appRoot, builder);

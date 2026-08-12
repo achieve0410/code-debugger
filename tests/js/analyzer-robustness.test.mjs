@@ -147,6 +147,83 @@ test("malformed framework sources emit diagnostics without inferred facts", asyn
   }
 });
 
+test("secondary frontend collectors reject malformed inputs before inferring facts", async (t) => {
+  for (const sample of [
+    {
+      name: "react API symbol",
+      dependencies: { react: "19.2.8" },
+      malformedFile: "src/api/broken.ts",
+      files: {
+        "src/api/broken.ts": "export const itemsUrl = \"/api/ghost\";\nfunction broken( {\n",
+        "src/Page.tsx": "export function Page() { return fetch(itemsUrl); }\n",
+      },
+      leakedFact: (fragment) => fragment.nodes.some(
+        (node) => node.kind === "http_call" && node.metadata.normalizedPath === "/api/ghost",
+      ),
+    },
+    {
+      name: "vue router",
+      dependencies: { vue: "3.5.40" },
+      malformedFile: "src/router.ts",
+      files: {
+        "src/router.ts": "const routes = [{ path: \"/ghost\", component: Ghost }];\nfunction broken( {\n",
+      },
+      leakedFact: (fragment) => fragment.routes.some(
+        (route) => route.framework === "vue" && route.path === "/ghost",
+      ),
+    },
+    {
+      name: "nuxt page",
+      dependencies: { nuxt: "3.14.0", vue: "3.5.40" },
+      malformedFile: "pages/ghost.vue",
+      files: {
+        "nuxt.config.ts": "export default defineNuxtConfig({})\n",
+        "pages/ghost.vue": "<template><button @click=\"go\"></template>\n<script setup>function go() { return true; }</script>\n",
+      },
+      leakedFact: (fragment) => fragment.routes.some(
+        (route) => route.framework === "nuxt" && route.path === "/ghost",
+      ),
+    },
+  ]) {
+    await t.test(sample.name, async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-debugger-secondary-syntax-"));
+      try {
+        await fs.writeFile(
+          path.join(root, "package.json"),
+          JSON.stringify({ dependencies: sample.dependencies }),
+        );
+        for (const [relativePath, source] of Object.entries(sample.files)) {
+          const file = path.join(root, relativePath);
+          await fs.mkdir(path.dirname(file), { recursive: true });
+          await fs.writeFile(file, source);
+        }
+
+        const fragment = await runAnalyzerRoot(root, ["--frontend-only"]);
+        assert.equal(
+          sample.leakedFact(fragment),
+          false,
+          "malformed secondary sources must not emit inferred facts",
+        );
+        assert.equal(
+          fragment.nodes.some((node) => node.source.path === sample.malformedFile),
+          false,
+          "malformed secondary sources must not emit inferred nodes",
+        );
+        assert.equal(
+          fragment.diagnostics.some(
+            (item) => item.code === "unsupported_syntax"
+              && item.source?.path === sample.malformedFile,
+          ),
+          true,
+          "malformed secondary sources must remain explicit diagnostics",
+        );
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
 test("plain TypeScript projects emit an explicit unsupported diagnostic", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "code-debugger-plain-ts-"));
   try {

@@ -220,7 +220,15 @@ function isFrontendSourceFile(root, file) {
 }
 
 function collectVueRouter(file, text, components, builder, framework = "vue") {
-  const entry = { file, text, lineOffset: 0, sourceFile: createTsSourceFile(file, text) };
+  const sourceFile = createTsSourceFile(file, text);
+  if (hasTsParseDiagnostics(sourceFile)) {
+    builder.addDiagnostic({
+      code: "unsupported_syntax",
+      source: { path: relPath(builder.root, file) },
+    });
+    return;
+  }
+  const entry = { file, text, lineOffset: 0, sourceFile };
   traverseTs(entry.sourceFile, (node) => {
     if (!ts.isObjectLiteralExpression(node)) return;
     let routePath;
