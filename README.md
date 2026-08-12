@@ -77,7 +77,7 @@ Node.js/npm/PyPI/Playwright distributions used by bootstrap.
 
 Releases are source-only. This project does not publish npm/PyPI packages,
 prebuilt binaries, containers, or a remote installer. The verified archive
-workflow begins with `code-debugger v0.2.1`. The `v0.2.0` release predates that
+workflow begins with `code-debugger v0.2.2`. The `v0.2.0` release predates that
 workflow; use the pinned clone/bootstrap workflow below for that release.
 
 ```sh
