@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@vue/compiler-sfc": "3.5.40",
-    "cytoscape": "3.34.0",
+    "cytoscape": "3.34.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "typescript": "6.0.3"
