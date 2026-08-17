@@ -226,7 +226,7 @@ jobs:
             release-artifacts/sbom.spdx.json.sha256
 
       - name: Attest release SBOM
-        uses: actions/attest-sbom@36590ecaf038d6630c74f2da259095627d52ac11 # v4
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4
         with:
           subject-path: release-artifacts/code-debugger-${{ env.RELEASE_TAG }}.tar.gz
           sbom-path: release-artifacts/sbom.spdx.json
