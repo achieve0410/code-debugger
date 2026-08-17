@@ -58,7 +58,7 @@ jobs:
           python-version: "3.13"
 
       - name: Download sealed source release
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v7.0.0
         with:
           name: source-release
           path: release-artifacts
@@ -107,7 +107,7 @@ jobs:
           python-version: "3.13"
 
       - name: Download sealed source release
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v7.0.0
         with:
           name: source-release
           path: release-artifacts
@@ -139,7 +139,7 @@ jobs:
           python-version: "3.13"
 
       - name: Download sealed source release
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v7.0.0
         with:
           name: source-release
           path: release-artifacts
@@ -199,13 +199,13 @@ jobs:
       attestations: write
     steps:
       - name: Download sealed source release
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v7.0.0
         with:
           name: source-release
           path: release-artifacts
 
       - name: Download exact archive SPDX
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v7.0.0
         with:
           name: release-sbom
           path: release-artifacts
